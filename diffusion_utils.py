@@ -5,7 +5,6 @@ import torchgeometry as tgm
 import math
 from tqdm import tqdm
 
-device_string = 'cuda'  #// or 'mps'
 
 ### Forward Process ###
 
@@ -77,10 +76,10 @@ class Degradation:
     def __init__(self, timesteps, degradation = 'blur', noise_schedule = 'cosine', dataset = 'mnist', **kwargs):
         
         self.timesteps = timesteps
-        self.device = torch.device(device_string if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
 
         
-        assert degradation in ['noise', 'blur', 'fadeblack', 'fadeblack_blur'], 'Invalid degradation type'
+        assert degradation in ['noise', 'blur', 'fadeblack', 'fadeblack_blur'], 'Invalid degradation type, choose from noise, blur, fadeblack, fadeblack_blur'
         self.degradation = degradation
         
         assert dataset in ['mnist', 'cifar', 'celeba'], 'Invalid dataset'
@@ -93,7 +92,7 @@ class Degradation:
                         'blur_routine': 'Constant'}
             
         self.blur = Blurring(**blur_kwargs)
-        self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule)
+        self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
 
     def noising(self, x_0, t):
         """
@@ -105,7 +104,8 @@ class Degradation:
         """
         
         x_0_coef, residual_coef = self.noise_coefs.forward_process(t)
-        x_t = x_0_coef * x_0 + residual_coef * torch.randn_like(x_0)
+        x_0_coef, residual_coef = x_0_coef.to(self.device), residual_coef.to(self.device)
+        x_t = x_0_coef * x_0 + residual_coef * torch.randn_like(x_0, device = self.device)
         return x_t
 
     def blurring(self, x_0, t):
@@ -118,12 +118,20 @@ class Degradation:
         """
         
         gaussian_kernels = nn.ModuleList(self.blur.get_kernels())
+        for kernel in gaussian_kernels:
+            kernel.requires_grad = False
         gaussian_kernels.to(self.device)  # Move kernels to GPU
         x = x_0
+        # 
+        if x_0.requires_grad:
+            x.retain_grad()
+
         for i in range(t):
-            with torch.no_grad():
-                x = x.unsqueeze(0) if len(x.shape) == 2  else x
-                x = gaussian_kernels[i](x).squeeze(0)  
+            x = x.unsqueeze(0) if len(x.shape) == 2  else x
+            x = gaussian_kernels[i](x).squeeze(0) 
+
+            if x_0.requires_grad:      
+                assert x.requires_grad == True  # Retain gradient in this computation
                  
         return x
 
@@ -196,11 +204,16 @@ class Blurring:
         conv = nn.Conv2d(in_channels=self.channels, out_channels=self.channels, kernel_size=dims, padding=int((dims[0]-1)/2), padding_mode='circular',
                          bias=False, groups=self.channels)
         
-        with torch.no_grad():
-            kernel = torch.unsqueeze(kernel, 0)
-            kernel = torch.unsqueeze(kernel, 0)
-            kernel = kernel.repeat(self.channels, 1, 1, 1)
-            conv.weight = nn.Parameter(kernel)
+        kernel = torch.unsqueeze(kernel, 0)
+        kernel = torch.unsqueeze(kernel, 0)
+        kernel = kernel.repeat(self.channels, 1, 1, 1)
+        conv.weight = nn.Parameter(kernel, requires_grad=False)
+
+        # with torch.no_grad():
+        #     kernel = torch.unsqueeze(kernel, 0)
+        #     kernel = torch.unsqueeze(kernel, 0)
+        #     kernel = kernel.repeat(self.channels, 1, 1, 1)
+        #     conv.weight = nn.Parameter(kernel)
 
         return conv
 
@@ -231,14 +244,14 @@ class Blurring:
 class DenoisingCoefs:
     
     
-    def __init__(self, timesteps, noise_schedule, **kwargs):
+    def __init__(self, timesteps, noise_schedule, device, **kwargs):
         self.timesteps = timesteps
         self.scheduler = Scheduler()
         
-        self.betas = self.scheduler.get_noise_schedule(self.timesteps, noise_schedule=noise_schedule)
+        self.betas = self.scheduler.get_noise_schedule(self.timesteps, noise_schedule=noise_schedule).to(device)
         self.alphas = 1. - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
-        self.alphas_cumprod_prev = torch.cat([torch.tensor([1.]), self.alphas_cumprod[:-1]])
+        self.alphas_cumprod_prev = torch.cat([torch.tensor([1.], device=device), self.alphas_cumprod[:-1]])
     
     
     def forward_process(self, t):
@@ -256,7 +269,6 @@ class DenoisingCoefs:
         
         x0_coef = torch.sqrt(self.alphas_cumprod)
         residual_coef =  torch.sqrt(1. - self.alphas_cumprod)
-        
         return x0_coef[t], residual_coef[t]
     
     
@@ -333,10 +345,14 @@ class Loss:
     def mse_loss(self, target, pred):    
         return F.mse_loss(pred, target)
     
+    def cold_loss(self, target, pred, t):
+        diff = pred - target
+        return diff.mean()  # Mean over batch dimension
+
     def darras_loss(self, target, pred, t):
         diff = pred - target # difference between the predicted and the target image / residual
-        degraded_diff = self.degradation(diff, t)**2 # Move this difference into the degradation space
-        return degraded_diff.mean(dim = 0) # Squared error loss, averaged over batch dimension
+        degraded_diff = self.degradation.degrade(diff, t)**2 # Move this difference into the degradation space and square it
+        return degraded_diff.mean()  # Squared error loss, averaged over batch dimension
 
 
 
@@ -366,13 +382,14 @@ class Trainer:
 
     def train_iter(self, x_0):
         
-        t = torch.randint(0, self.timesteps, (1,), dtype=torch.long) # Randomly sample a time step
+        t = torch.randint(0, self.timesteps, (1,), dtype=torch.long, device=self.device) # Randomly sample a time step
         x_t = self.degrader.degrade(x_0, t)
         residual = x_0 - x_t if self.determ else torch.randn_like(x_0) # Residual either difference between x_0 and x_t for deterministic degradation or random noise for denoising diffusion
         pred = self.reconstruction.model_prediction(self.model, x_t, t, return_x0=False) # Model prediction in correct form with coefficients applied
         target = residual if self.prediction == 'residual' else x_0
         
         if self.determ: 
+            #loss = self.loss.cold_loss(target, pred, t)
             loss = self.loss.darras_loss(target, pred, t)
         else:
             loss = self.loss.mse_loss(target, pred)
@@ -387,14 +404,14 @@ class Trainer:
     def train_epoch(self, trainloader, valloader, val = False):
         
         epoch_loss = 0  
-        for x_0, _ in trainloader:
+        for x_0, _ in tqdm(trainloader, total=len(trainloader)):
             x_0 = x_0.to(self.device)
             epoch_loss += self.train_iter(x_0)
         
         val_loss = 0
         if val:
             print("Validation")
-            for x_0, _ in valloader:
+            for x_0, _ in tqdm(valloader, total=len(valloader)):
                 x_0 = x_0.to(self.device)
                 val_loss += self.train_iter(x_0)
             
@@ -409,28 +426,28 @@ class Sampler:
         self.reconstruction = Reconstruction(timesteps=timesteps, prediction=prediction, noise_schedule=noise_schedule, **kwargs)
         self.prediction = prediction
         self.timesteps = timesteps
-        self.device = torch.device(device_string if torch.cuda.is_available() else 'cpu')
+        self.device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
         
-    
+    @torch.no_grad() 
     def sample_ddpm(self, model, batch_size, return_trajectory = False):
         
-        x_t = torch.randn((batch_size, model.channels, model.image_size, model.image_size))
+        x_t = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
         samples = []
         
         for t in range(self.timesteps - 1, -1, -1):
-            print(t)
             t = torch.tensor(t).to(self.device)
-            z = torch.randn((batch_size, model.channels, model.image_size, model.image_size))
+            z = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
             posterior_mean_x0, posterior_mean_xt, posterior_var = self.coefs.posterior(t) # Get coefficients for the posterior distribution q(x_{t-1} | x_t, x_0)
             x0_estimate = self.reconstruction.model_prediction(model, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x0_estimate + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
             
-            samples.append(x_t_m1)
+            #samples.append(x_t_m1[0,:,:,:]) 
             
             x_t = x_t_m1
             
         return x_t if not return_trajectory else samples
     
+    @torch.no_grad() 
     def sample_ddim(self, model, batch_size, return_trajectory = False):
         ## To be implemented
         pass

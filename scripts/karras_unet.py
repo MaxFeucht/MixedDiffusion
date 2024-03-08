@@ -14,7 +14,7 @@ import torch.nn.functional as F
 
 from einops import rearrange, repeat, pack, unpack
 
-from attend import Attend
+from scripts.attend import Attend
 
 # helpers functions
 

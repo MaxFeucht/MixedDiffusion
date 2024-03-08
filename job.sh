@@ -37,3 +37,4 @@ cd o`echo $$`
 
 # Run the actual experiment. 
 python /home/mft520/Mixed-Diffusion/main.py --epochs 500 --t 1000 --dim 64
+echo "Script finished"
