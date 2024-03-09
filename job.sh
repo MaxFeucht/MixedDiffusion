@@ -5,6 +5,7 @@
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
 #SBATCH --gres=gpu:1
+#SBATCH -o output.out
 
 ## in the list above, the partition name depends on where you are running your job. 
 ## On DAS5 the default would be `defq` on Lisa the default would be `gpu` or `gpu_shared`
@@ -36,5 +37,6 @@ mkdir o`echo $$`
 cd o`echo $$`
 
 # Run the actual experiment. 
+source ~/anaconda3/bin/activate diffusion
 python /home/mft520/MixedDiffusion/main.py --epochs 500 --t 1000 --dim 64
 echo "Script finished"
