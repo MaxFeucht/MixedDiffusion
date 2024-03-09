@@ -73,7 +73,7 @@ class Scheduler:
         
 class Degradation:
     
-    def __init__(self, timesteps, degradation = 'blur', noise_schedule = 'cosine', dataset = 'mnist', **kwargs):
+    def __init__(self, timesteps, degradation, noise_schedule, dataset, **kwargs):
         
         self.timesteps = timesteps
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
@@ -302,7 +302,7 @@ class DenoisingCoefs:
 class Reconstruction:
     
     
-    def __init__(self, prediction = 'residual', degradation = 'noise', **kwargs):
+    def __init__(self, prediction, degradation, **kwargs):
         self.prediction = prediction
         self.determ = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.coefs = DenoisingCoefs(**kwargs)
@@ -325,13 +325,19 @@ class Reconstruction:
         
         if self.prediction == 'residual':
             residual = model(x_t, t_tensor)
-            x0_estimate = xt_coef * x_t - residual_coef * residual 
-            return residual if not return_x0 else x0_estimate          
+            if not return_x0:
+                return residual
+            else:
+                x0_estimate = xt_coef * x_t - residual_coef * residual 
+                return x0_estimate      
             
         elif self.prediction == 'x0':
             x0_estimate = model(x_t, t_tensor)
-            residual = (xt_coef * x_t - x0_estimate) / residual_coef
-            return x0_estimate if return_x0 else residual         
+            if return_x0:
+                return x0_estimate
+            else:
+                residual = (xt_coef * x_t - x0_estimate) / residual_coef
+                return residual      
         
         else:
             raise ValueError('Invalid prediction type')
@@ -358,7 +364,7 @@ class Loss:
 
 class Trainer:
     
-    def __init__(self, model, lr, timesteps, prediction='residual', degradation='noise', noise_schedule = 'cosine', **kwargs):
+    def __init__(self, model, lr, timesteps, prediction, degradation, noise_schedule, **kwargs):
 
         self.device = kwargs['device']
         self.model = model.to(self.device)
@@ -370,7 +376,8 @@ class Trainer:
                           'prediction': prediction,
                           'degradation': degradation, 
                           'noise_schedule': noise_schedule, 
-                          'device': self.device}
+                          'device': self.device,
+                          'dataset': kwargs['dataset']}
         
         self.schedule = Scheduler()
         self.degrader = Degradation(**general_kwargs)
@@ -378,6 +385,12 @@ class Trainer:
         self.reconstruction = Reconstruction(**general_kwargs)
         self.loss = Loss(**general_kwargs)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+
+        # To Do: Save and load model and optimizer
+        # if os.path.exists('./checkpoints'):
+        #     self.model.load_state_dict(torch.load('./checkpoints/model.pth'))
+        #     self.optimizer.load_state_dict(torch.load('./checkpoints/optimizer.pth'))
+        #     print("Model and optimizer loaded")
 
 
     def train_iter(self, x_0):
@@ -421,8 +434,9 @@ class Trainer:
     
 class Sampler:
     
-    def __init__(self, timesteps, prediction = 'residual', noise_schedule = 'cosine', **kwargs):
+    def __init__(self, timesteps, prediction, noise_schedule, **kwargs):
         self.coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, **kwargs)
+        self.degradation = Degradation(timesteps=timesteps, prediction=prediction, noise_schedule=noise_schedule, **kwargs)
         self.reconstruction = Reconstruction(timesteps=timesteps, prediction=prediction, noise_schedule=noise_schedule, **kwargs)
         self.prediction = prediction
         self.timesteps = timesteps
@@ -451,6 +465,18 @@ class Sampler:
     def sample_ddim(self, model, batch_size, return_trajectory = False):
         ## To be implemented
         pass
+
+    @torch.no_grad()
+    def sample_cold(self, model, batch_size, return_trajectory = False):
+
+        # Initialize an empty tensor to store the batch
+        x_t = torch.empty(batch_size, model.channels, model.image_size, model.image_size)
+
+        # Fill each depth slice with a single integer drawn uniformly from [0, 255]
+        for i in range(batch_size):
+            for j in range(model.channels):
+                x_t[i, j] = torch.randint(0, 256, (model.image_size, model.image_size))
+
                     
         
             

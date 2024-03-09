@@ -14,7 +14,7 @@ from torchvision import transforms as T
 from unet import UNet
 from scripts.karras_unet import KarrasUnet
 from diffusion_utils import Degradation, Scheduler, Reconstruction, Trainer, Sampler, Blurring, DenoisingCoefs
-
+from utils import create_dir
 
 import sys
 sys.argv = ['']
@@ -95,21 +95,17 @@ def main(**kwargs):
     trainer = Trainer(model = unet, **kwargs)
     sampler = Sampler(**kwargs)
 
-    # Check if directory for imgs exists
-    for i in range(10000):
-        path = f'./imgs/{kwargs["dataset"]}_{kwargs["degradation"]}/run_{i}/'
-        if not os.path.exists(path):
-            os.makedirs(path)
-            break
-
     # Training Loop
     for e in range(kwargs['epochs']):
         
-        val_flag = True if e % 10 == 0 and e != 0 else False
+        val_flag = True if (e+1) % 10 == 0 else False
         trainloss, valloss = trainer.train_epoch(trainloader, valloader, val=val_flag)
         
         print(f"Epoch {e} Train Loss: {trainloss}")
         if val_flag:
+            if e < 10:
+                path = create_dir(**kwargs)
+
             print(f"Epoch {e} Validation Loss: {valloss}")
         
             # Save 10 images generated from the model at the end of each epoch
@@ -126,9 +122,9 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=100, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=500, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
-    parser.add_argument('--epochs', '--e', type=int, default=10, help='Number of Training Epochs')
+    parser.add_argument('--epochs', '--e', type=int, default=500, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=32, help='Batch size')
     parser.add_argument('--dim', '--d', type=int, default=32, help='Model dimension')
     parser.add_argument('--num_downsamples', '--down', type=int, default=2, help='Number of downsamples')
@@ -142,7 +138,8 @@ if __name__ == "__main__":
     
     args.num_downsamples = 2 if args.dataset == 'mnist' else 3
     args.device = 'cuda' if torch.cuda.is_available() else 'mps'
-    
+    print("Device: ", args.device)
+
     main(**vars(args))
     
 

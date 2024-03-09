@@ -14,7 +14,7 @@ from torchvision import transforms as T
 from unet import UNet
 from scripts.karras_unet import KarrasUnet
 from diffusion_utils import Degradation, Scheduler, Reconstruction, Trainer, Sampler, Blurring, DenoisingCoefs
-
+from utils import create_dir
 
 import sys
 sys.argv = ['']
@@ -81,14 +81,14 @@ def plot_degradation(timesteps, train_loader):
 #%%
 
 default_args = {
-    'timesteps': 100,
+    'timesteps': 1000,
     'lr': 1e-4,
-    'epochs': 10,
+    'epochs': 500,
     'batch_size': 32,
-    'dim': 16,
+    'dim': 32,
     'num_downsamples': 2,
     'prediction': 'residual',
-    'degradation': 'fadeblack_blur',
+    'degradation': 'noise',
     'noise_schedule': 'cosine',
     'dataset': 'mnist',
     'verbose': False,
@@ -110,21 +110,19 @@ unet = UNet(image_size=imsize, channels=channels, num_downsamples=default_args['
 trainer = Trainer(model = unet, **default_args)
 sampler = Sampler(**default_args)
 
-# Check if directory for imgs exists
-for i in range(10000):
-    path = f'./imgs/{default_args["dataset"]}_{default_args["degradation"]}/run_{i}/'
-    if not os.path.exists(path):
-        os.makedirs(path)
-        break
-
 # Training Loop
 for e in range(default_args['epochs']):
     
-    val_flag = True if e % 10 == 0 and e != 0 else False
+    val_flag = True if (e+1) % 10 == 0 else False
     trainloss, valloss = trainer.train_epoch(trainloader, valloader, val=val_flag)
     
     print(f"Epoch {e} Train Loss: {trainloss}")
     if val_flag:
+        
+        # Create directory for images
+        if e < 10:
+            path = create_dir(**default_args)
+
         print(f"Epoch {e} Validation Loss: {valloss}")
     
         # Save 10 images generated from the model at the end of each epoch
@@ -137,5 +135,3 @@ for e in range(default_args['epochs']):
         # Save model
         torch.save(trainer.model.state_dict(), f'./unet_{default_args["dataset"]}_{default_args["degradation"]}_{default_args["dim"]}_{default_args["epochs"]}.pt')
 
-
-# %%
