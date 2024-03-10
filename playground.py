@@ -133,5 +133,5 @@ for e in range(default_args['epochs']):
             plt.imsave(path + f'epoch_{e+1}_img_{i}.png', img.squeeze().detach().cpu().numpy())
 
         # Save model
-        torch.save(trainer.model.state_dict(), f'./unet_{default_args["dataset"]}_{default_args["degradation"]}_{default_args["dim"]}_{default_args["epochs"]}.pt')
+        torch.save(trainer.model.state_dict(), f'./models/mnist_noise/unet_{default_args["dataset"]}_{default_args["degradation"]}_{default_args["dim"]}_{default_args["epochs"]}.pt')
 

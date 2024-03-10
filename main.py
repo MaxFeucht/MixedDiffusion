@@ -116,7 +116,7 @@ def main(**kwargs):
                 plt.imsave(path + f'epoch_{e+1}_img_{i}.png', img.squeeze().detach().cpu().numpy())
 
             # Save model
-            torch.save(trainer.model.state_dict(), f'./unet_{kwargs["dataset"]}_{kwargs["degradation"]}_{kwargs["dim"]}_{kwargs["epochs"]}.pt')
+            torch.save(trainer.model.state_dict(), f'./models/mnist_noise/unet_{kwargs["dataset"]}_{kwargs["degradation"]}_{kwargs["dim"]}_{kwargs["epochs"]}.pt')
 
 
 if __name__ == "__main__":
@@ -126,10 +126,10 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=500, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=32, help='Batch size')
-    parser.add_argument('--dim', '--d', type=int, default=32, help='Model dimension')
+    parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
     parser.add_argument('--num_downsamples', '--down', type=int, default=2, help='Number of downsamples')
     parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method')
-    parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
+    parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
