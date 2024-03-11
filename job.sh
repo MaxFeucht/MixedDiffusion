@@ -38,5 +38,5 @@ cd o`echo $$`
 
 # Run the actual experiment. 
 source ~/anaconda3/bin/activate diffusion
-python /home/mft520/MixedDiffusion/main.py --epochs 500 --t 1000 --dim 128 --deg noise
+python /home/mft520/MixedDiffusion/main.py --epochs 500 --t 500 --dim 128 --deg noise
 echo "Script finished"
