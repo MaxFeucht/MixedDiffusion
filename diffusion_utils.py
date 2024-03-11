@@ -461,10 +461,12 @@ class Sampler:
             
         return x_t if not return_trajectory else samples
     
+
     @torch.no_grad() 
     def sample_ddim(self, model, batch_size, return_trajectory = False):
         ## To be implemented
         pass
+
 
     @torch.no_grad()
     def sample_cold(self, model, batch_size, return_trajectory = False):
@@ -475,10 +477,14 @@ class Sampler:
         # Fill each depth slice with a single integer drawn uniformly from [0, 255]
         for i in range(batch_size):
             for j in range(model.channels):
-                x_t[i, j] = torch.randint(0, 256, (model.image_size, model.image_size))
+                x_t[i, j, :, :] = torch.full((model.image_size, model.image_size), torch.rand(1).item(), dtype=torch.float32)
 
-                    
-        
+        for t in range(self.timesteps, -1, -1):
+            t_tensor = torch.tensor([t]).repeat(x_t.shape[0]).float().to(self.device)
+            x_0_hat = model(x_t,t_tensor)
+            x_tm1 = x_t -  self.degrader.degrade(x_0_hat, t) + self.degrader.degrade(x_0_hat, t-1)
+            x_t = x_tm1 
+                
             
 
 

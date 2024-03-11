@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=test
-#SBATCH --time=00:15:00
-#SBATCH -N 1
+#SBATCH --time=00:05:00
+#SBATCH -N 4
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
 #SBATCH --gres=gpu:1
@@ -38,5 +38,5 @@ cd o`echo $$`
 
 # Run the actual experiment. 
 source ~/anaconda3/bin/activate diffusion
-python /home/mft520/MixedDiffusion/main.py --epochs 5 --t 100 --dim 16 --degradation noise
+python /home/mft520/MixedDiffusion/main.py --epochs 5 --t 1000 --dim 16 --degradation noise
 echo "Script finished"
