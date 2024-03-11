@@ -98,12 +98,12 @@ def main(**kwargs):
     # Training Loop
     for e in range(kwargs['epochs']):
         
-        val_flag = True if (e+1) % 10 == 0 else False
+        val_flag = True if (e+1) % 5 == 0 else False
         trainloss, valloss = trainer.train_epoch(trainloader, valloader, val=val_flag)
         
         print(f"Epoch {e} Train Loss: {trainloss}")
         if val_flag:
-            if e < 10:
+            if e < 5:
                 path = create_dir(**kwargs)
 
             print(f"Epoch {e} Validation Loss: {valloss}")
