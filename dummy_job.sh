@@ -1,7 +1,7 @@
 #!/bin/bash
 #SBATCH --job-name=test
-#SBATCH --time=00:05:00
-#SBATCH -N 1
+#SBATCH --time=00:15:00
+#SBATCH -N 4
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
 #SBATCH --gres=gpu:1

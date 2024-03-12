@@ -14,7 +14,7 @@ from torchvision import transforms as T
 from unet import UNet
 from scripts.karras_unet import KarrasUnet
 from diffusion_utils import Degradation, Scheduler, Reconstruction, Trainer, Sampler, Blurring, DenoisingCoefs
-from utils import create_dir
+from utils import create_dirs
 
 import sys
 sys.argv = ['']
@@ -121,7 +121,7 @@ for e in range(default_args['epochs']):
         
         # Create directory for images
         if e < 10:
-            path = create_dir(**default_args)
+            imgpath, modelpath = create_dirs(**default_args)
 
         print(f"Epoch {e} Validation Loss: {valloss}")
     
@@ -130,10 +130,10 @@ for e in range(default_args['epochs']):
         
         # Save all 10 images in a folder
         for i, img in enumerate(samples):
-            plt.imsave(path + f'epoch_{e+1}_img_{i}.png', img.squeeze().detach().cpu().numpy())
+            plt.imsave(imgpath + f'epoch_{e+1}_img_{i}.png', img.squeeze().detach().cpu().numpy())
 
         # Save model
-        torch.save(trainer.model.state_dict(), f'./models/mnist_noise/unet_{default_args["dataset"]}_{default_args["degradation"]}_{default_args["dim"]}_{default_args["epochs"]}.pt')
+        torch.save(trainer.model.state_dict(), modelpath + f'unet_{kwargs["dim"]}_{kwargs["epochs"]}.pt')
 
 
 #%%
@@ -192,11 +192,10 @@ plt.suptitle('Denoising Diffusion Process', size = 16, **hfont)
 plt.show()
 
 #%%
-        
-# Get batch from dataloader
-x, _ = next(iter(trainloader))
 
-x.shape
-x_0_hat.shape
+model = UNet(image_size=28, channels=1, num_downsamples=2, dim=32, dim_max=128)
+ckpt=torch.load("./models/steps_00002345.pt")
+model.load_state_dict(ckpt["model"])
+
 
 # %%

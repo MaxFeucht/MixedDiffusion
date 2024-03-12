@@ -94,6 +94,7 @@ class Degradation:
         self.blur = Blurring(**blur_kwargs)
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
 
+
     def noising(self, x_0, t):
         """
         Function to add noise to an image x at time t.
@@ -102,11 +103,12 @@ class Degradation:
         :param int t: The time step
         :return torch.Tensor: The degraded image at time t
         """
-        
+
         x_0_coef, residual_coef = self.noise_coefs.forward_process(t)
         x_0_coef, residual_coef = x_0_coef.to(self.device), residual_coef.to(self.device)
         x_t = x_0_coef * x_0 + residual_coef * torch.randn_like(x_0, device = self.device)
         return x_t
+
 
     def blurring(self, x_0, t):
         """
@@ -125,6 +127,10 @@ class Degradation:
         # 
         if x_0.requires_grad:
             x.retain_grad()
+
+        # Apply Blurring with the same intensity (t) to all images in batch
+        if isinstance(t, torch.Tensor):
+            t = t[0].item()
 
         for i in range(t):
             x = x.unsqueeze(0) if len(x.shape) == 2  else x
@@ -267,21 +273,25 @@ class DenoisingCoefs:
             The coefficients for the Denoising Diffusion process
         """
         
-        x0_coef = torch.sqrt(self.alphas_cumprod)
-        residual_coef =  torch.sqrt(1. - self.alphas_cumprod)
-        return x0_coef[t], residual_coef[t]
+        x0_coef = torch.sqrt(self.alphas_cumprod.gather(-1, t)).reshape(-1, 1, 1, 1)
+        residual_coef =  torch.sqrt(1. - self.alphas_cumprod.gather(-1, t)).reshape(-1, 1, 1, 1)
+        return x0_coef, residual_coef
     
     
     def posterior(self, t):
         """
-        Function to obtain the coefficients for the Denoising Diffusion posterior q(x_{t-1} | x_t, x_0).
+        Function to obtain the coefficients for the Denoising Diffusion posterior 
+        q(x_{t-1} | x_t, x_0).
         """
+        beta_t = self.betas.gather(-1, t).reshape(-1, 1, 1, 1)
+        alphas_cumprod_t = self.alphas_cumprod.gather(-1, t).reshape(-1, 1, 1, 1)
+        alphas_cumprod_prev_t = self.alphas_cumprod_prev.gather(-1, t).reshape(-1, 1, 1, 1)
+        
+        posterior_variance = beta_t * (1. - alphas_cumprod_prev_t) / (1. - alphas_cumprod_t) # beta_hat
+        posterior_mean_x0 = beta_t * torch.sqrt(alphas_cumprod_prev_t) / (1. - alphas_cumprod_t) #x_0
+        posterior_mean_xt = (1. - alphas_cumprod_prev_t) * torch.sqrt(self.alphas.gather(-1,t).reshape(-1, 1, 1, 1)) / (1. - alphas_cumprod_t) #x_t
 
-        posterior_variance = self.betas * (1. - self.alphas_cumprod_prev) / (1. - self.alphas_cumprod) # beta_hat
-        posterior_mean_x0 = self.betas * torch.sqrt(self.alphas_cumprod_prev) / (1. - self.alphas_cumprod) #x_0
-        posterior_mean_xt = (1. - self.alphas_cumprod_prev) * torch.sqrt(self.alphas) / (1. - self.alphas_cumprod) #x_t
-
-        return posterior_mean_x0[t], posterior_mean_xt[t], posterior_variance[t]
+        return posterior_mean_x0, posterior_mean_xt, posterior_variance
     
     
     def x0_restore(self, t):
@@ -292,10 +302,10 @@ class DenoisingCoefs:
         :return tuple: The coefficients for the Denoising Diffusion process
         """
         
-        xt_coef = torch.sqrt(1. / self.alphas_cumprod)
-        residual_coef = torch.sqrt(1. / self.alphas_cumprod - 1)
+        xt_coef = torch.sqrt(1. / self.alphas_cumprod.gather(-1, t)).reshape(-1, 1, 1, 1)
+        residual_coef = torch.sqrt(1. / self.alphas_cumprod.gather(-1, t) - 1).reshape(-1, 1, 1, 1)
 
-        return xt_coef[t], residual_coef[t]
+        return xt_coef, residual_coef
     
     
 
@@ -320,11 +330,9 @@ class Reconstruction:
             xt_coef, residual_coef = self.coefs.x0_restore(t)
         else:
             xt_coef, residual_coef = torch.tensor(1.), torch.tensor(1.)
-        
-        t_tensor = t.repeat(x_t.shape[0]).float() # Repeat time step tensor to match the batch size
-        
+                
         if self.prediction == 'residual':
-            residual = model(x_t, t_tensor)
+            residual = model(x_t, t)
             if not return_x0:
                 return residual
             else:
@@ -332,7 +340,7 @@ class Reconstruction:
                 return x0_estimate      
             
         elif self.prediction == 'x0':
-            x0_estimate = model(x_t, t_tensor)
+            x0_estimate = model(x_t, t)
             if return_x0:
                 return x0_estimate
             else:
@@ -371,7 +379,7 @@ class Trainer:
         self.prediction = prediction
         self.timesteps = timesteps
         self.determ = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
-        
+
         general_kwargs = {'timesteps': timesteps, 
                           'prediction': prediction,
                           'degradation': degradation, 
@@ -395,9 +403,9 @@ class Trainer:
 
     def train_iter(self, x_0):
         
-        t = torch.randint(0, self.timesteps, (1,), dtype=torch.long, device=self.device) # Randomly sample a time step
+        t = torch.randint(0, self.timesteps, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
         x_t = self.degrader.degrade(x_0, t)
-        residual = x_0 - x_t if self.determ else torch.randn_like(x_0) # Residual either difference between x_0 and x_t for deterministic degradation or random noise for denoising diffusion
+        residual = torch.randn_like(x_0) if not self.determ else x_0 - x_t # Residual either random noise for denoising diffusion or difference between x_0 and x_t for deterministic degradation
         pred = self.reconstruction.model_prediction(self.model, x_t, t, return_x0=False) # Model prediction in correct form with coefficients applied
         target = residual if self.prediction == 'residual' else x_0
         
@@ -434,13 +442,14 @@ class Trainer:
     
 class Sampler:
     
-    def __init__(self, timesteps, prediction, noise_schedule, **kwargs):
+    def __init__(self, timesteps, prediction, noise_schedule, degradation, **kwargs):
         self.coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, **kwargs)
-        self.degradation = Degradation(timesteps=timesteps, prediction=prediction, noise_schedule=noise_schedule, **kwargs)
-        self.reconstruction = Reconstruction(timesteps=timesteps, prediction=prediction, noise_schedule=noise_schedule, **kwargs)
+        self.degradation = Degradation(timesteps=timesteps, degradation = degradation, prediction=prediction, noise_schedule=noise_schedule, **kwargs)
+        self.reconstruction = Reconstruction(timesteps=timesteps, prediction=prediction, degradation = degradation, noise_schedule=noise_schedule, **kwargs)
         self.prediction = prediction
         self.timesteps = timesteps
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
+        self.determ = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         
     @torch.no_grad() 
     def sample_ddpm(self, model, batch_size, return_trajectory = False):
@@ -448,15 +457,15 @@ class Sampler:
         x_t = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
         samples = []
         
-        for t in range(self.timesteps - 1, -1, -1):
-            t = torch.tensor(t).to(self.device)
+        for t in tqdm(reversed(range(self.timesteps)), desc="Sampling"):
+            t = torch.full((batch_size,), t).to(self.device)
             z = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
             posterior_mean_x0, posterior_mean_xt, posterior_var = self.coefs.posterior(t) # Get coefficients for the posterior distribution q(x_{t-1} | x_t, x_0)
             x0_estimate = self.reconstruction.model_prediction(model, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
+            x0_estimate.clamp_(-1, 1) # Clip the estimate to the range [-1, 1]
             x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x0_estimate + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
-            
-            #samples.append(x_t_m1[0,:,:,:]) 
-            
+            samples.append(x_t_m1[0,:,:,:]) 
+
             x_t = x_t_m1
             
         return x_t if not return_trajectory else samples
@@ -474,16 +483,25 @@ class Sampler:
         # Initialize an empty tensor to store the batch
         x_t = torch.empty(batch_size, model.channels, model.image_size, model.image_size)
 
-        # Fill each depth slice with a single integer drawn uniformly from [0, 255]
+        # Fill each depth slice with a single decimal drawn uniformly from [0, 1]
         for i in range(batch_size):
             for j in range(model.channels):
                 x_t[i, j, :, :] = torch.full((model.image_size, model.image_size), torch.rand(1).item(), dtype=torch.float32)
 
-        for t in range(self.timesteps, -1, -1):
+        for t in reversed(range(self.timesteps)):
             t_tensor = torch.tensor([t]).repeat(x_t.shape[0]).float().to(self.device)
             x_0_hat = model(x_t,t_tensor)
             x_tm1 = x_t -  self.degrader.degrade(x_0_hat, t) + self.degrader.degrade(x_0_hat, t-1)
             x_t = x_tm1 
+    
+
+    def sample(self, model, batch_size, return_trajectory = False):
+        if self.determ:
+            return self.sample_cold(model, batch_size, return_trajectory)
+        else:
+            return self.sample_ddpm(model, batch_size, return_trajectory)
+        
+
                 
             
 
