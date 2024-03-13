@@ -112,7 +112,7 @@ def main(**kwargs):
         
             # Sav sampled images
             samples = sampler.sample(unet, kwargs['n_samples'])
-            save_image(samples, imgpath + f'epoch_{e+1}.png'.format(),nrow=kwargs['n_samples'])
+            save_image(samples, imgpath + f'epoch_{e+1}.png'.format(), nrow=int(math.sqrt(kwargs['n_samples'])))
 
             # Save model
             torch.save(trainer.model.state_dict(), modelpath + f'unet_{kwargs["dim"]}_{kwargs["epochs"]}.pt')
@@ -121,14 +121,14 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=500, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=1000, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
-    parser.add_argument('--epochs', '--e', type=int, default=10, help='Number of Training Epochs')
-    parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
-    parser.add_argument('--dim', '--d', type=int, default=64, help='Model dimension')
+    parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
+    parser.add_argument('--batch_size', '--b', type=int, default=32, help='Batch size')
+    parser.add_argument('--dim', '--d', type=int, default=96, help='Model dimension')
     parser.add_argument('--num_downsamples', '--down', type=int, default=2, help='Number of downsamples')
-    parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method')
-    parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
+    parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
+    parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')

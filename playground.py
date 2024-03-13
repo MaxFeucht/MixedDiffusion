@@ -10,6 +10,7 @@ from tqdm import tqdm
 import torch
 from torchvision import datasets
 from torchvision import transforms as T
+from torchvision.utils import save_image
 
 from unet import UNet
 from scripts.karras_unet import KarrasUnet
@@ -41,54 +42,18 @@ def load_data(batch_size = 32):
     return train_loader, val_loader
 
 
-def plot_degradation(timesteps, train_loader):
-    
-    noise = Degradation(timesteps = timesteps, degradation = 'noise', noise_schedule='cosine')
-    blur = Degradation(timesteps = timesteps, degradation = 'blur')
-    black = Degradation(timesteps = timesteps, degradation = 'fadeblack')
-    black_blur = Degradation(timesteps = timesteps, degradation = 'fadeblack_blur')
-
-    plt.figure(figsize=(16, 5))
-    for i in range(timesteps):
-
-        x, y = next(iter(train_loader))   
-        x = x[0].squeeze().numpy()
-        
-        plt.subplot(5, timesteps, 0*timesteps+i+1)
-        plt.imshow(x)
-        plt.axis('off')
-
-        plt.subplot(5, timesteps, 1*timesteps+i+1)
-        plt.imshow(noise.degrade(x, i))
-        plt.axis('off')
-    
-        plt.subplot(5, timesteps, 2*timesteps+i+1)
-        plt.imshow(blur.degrade(x, i).cpu(), vmin=0, vmax=1)
-        plt.axis('off')
-        
-        plt.subplot(5, timesteps, 3*timesteps+i+1)
-        plt.imshow(black.degrade(x, i).cpu(), vmin=0, vmax=1)   
-        plt.axis('off')
-        
-        plt.subplot(5, timesteps, 4*timesteps+i+1)
-        plt.imshow(black_blur.degrade(x, i).cpu(), vmin=0, vmax=1)   
-        plt.axis('off')
-
-    # axis off
-    plt.suptitle('Image degradation', size = 18)
-
 
 #%%
 
 default_args = {
-    'timesteps': 1000,
+    'timesteps': 50,
     'lr': 1e-4,
     'epochs': 500,
     'batch_size': 32,
-    'dim': 32,
+    'dim': 128,
     'num_downsamples': 2,
     'prediction': 'residual',
-    'degradation': 'noise',
+    'degradation': 'blur',
     'noise_schedule': 'cosine',
     'dataset': 'mnist',
     'verbose': False,
@@ -96,9 +61,6 @@ default_args = {
 }
 
 trainloader, valloader = load_data(default_args['batch_size'])
-
-if default_args['verbose']:
-    plot_degradation(10, trainloader)
 
 x, _ = next(iter(trainloader))   
 channels, imsize = x[0].shape[0], x[0].shape[-1]
@@ -109,6 +71,16 @@ unet = UNet(image_size=imsize, channels=channels, num_downsamples=default_args['
 # Define Trainer and Sampler
 trainer = Trainer(model = unet, **default_args)
 sampler = Sampler(**default_args)
+
+unet.load_state_dict(torch.load("./models/mnist_noise/unet_mnist_noise_128_200.pt"))
+
+
+sample = sampler.sample(unet, 36)
+
+save_image(sample, './imgs/mnist_blur/test.png'.format(),nrow=6)
+
+
+#%%
 
 # Training Loop
 for e in range(default_args['epochs']):
@@ -133,7 +105,7 @@ for e in range(default_args['epochs']):
             plt.imsave(imgpath + f'epoch_{e+1}_img_{i}.png', img.squeeze().detach().cpu().numpy())
 
         # Save model
-        torch.save(trainer.model.state_dict(), modelpath + f'unet_{kwargs["dim"]}_{kwargs["epochs"]}.pt')
+        torch.save(trainer.model.state_dict(), modelpath + f'unet_{default_args["dim"]}_{default_args["epochs"]}.pt')
 
 
 #%%
