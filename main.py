@@ -15,8 +15,8 @@ from torchvision.utils import save_image
 
 from unet import UNet
 from scripts.karras_unet import KarrasUnet
-from diffusion_utils import Degradation, Scheduler, Reconstruction, Trainer, Sampler, Blurring, DenoisingCoefs
-from utils import create_dirs
+from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
+from utils import create_dirs, save_video, save_gif
 
 import sys
 sys.argv = ['']
@@ -91,11 +91,33 @@ def main(**kwargs):
     channels, imsize = x[0].shape[0], x[0].shape[-1]
     
     # Define Model
-    unet = UNet(image_size=imsize, channels=channels, num_downsamples=kwargs['num_downsamples'], dim = kwargs['dim'], dim_max =  kwargs['dim']*2**kwargs['num_downsamples'])
+    unet = UNet(image_size=imsize, 
+                channels=channels, 
+                num_downsamples=kwargs['num_downsamples'], 
+                dim = kwargs['dim'], 
+                dim_max =  kwargs['dim']*2**kwargs['num_downsamples'])
+    
+    # Define Model EMA
+    adjust = 1 * args.batch_size * args.model_ema_steps / args.epochs # The 1 in the beginning is symbolizing the number of distributed processes (1 for single GPU) 
+    alpha = 1.0 - args.model_ema_decay
+    alpha = min(1.0, alpha * adjust)
+    model_ema = ExponentialMovingAverage(unet, device=kwargs['device'], decay=1.0 - alpha)
 
     # Define Trainer and Sampler
-    trainer = Trainer(model = unet, **kwargs)
+    trainer = Trainer(model = unet, model_ema = model_ema, **kwargs)
     sampler = Sampler(**kwargs)
+
+    imgpath, modelpath = create_dirs(**kwargs)
+
+    if kwargs['load_checkpoint']:
+        try:
+            chkpt = torch.load(modelpath + f'chpkt_{kwargs["dim"]}_{kwargs["epochs"]}_{kwargs["prediction"]}.pt')
+            trainer.model.load_state_dict(chkpt['model_state_dict'])
+            trainer.optimizer.load_state_dict(chkpt['optimizer_state_dict'])
+            trainer.model_ema.load_state_dict(chkpt['ema_state_dict'])
+            print("Checkpoint loaded")
+        except:
+            print("No checkpoint found")
 
     # Training Loop
     for e in range(kwargs['epochs']):
@@ -105,27 +127,33 @@ def main(**kwargs):
         
         print(f"Epoch {e} Train Loss: {trainloss}")
         if val_flag:
-            if e < kwargs['val_interval']:
-                imgpath, modelpath = create_dirs(**kwargs)
-
             print(f"Epoch {e} Validation Loss: {valloss}")
         
             # Sav sampled images
-            samples = sampler.sample(unet, kwargs['n_samples'])
-            save_image(samples, imgpath + f'epoch_{e+1}.png'.format(), nrow=int(math.sqrt(kwargs['n_samples'])))
+            samples = sampler.sample(model_ema.module, kwargs['n_samples'])
+            save_image(samples, os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=int(math.sqrt(kwargs['n_samples'])))
+            save_video(imgpath, f'epoch_{e+1}.mp4', samples)
+            save_gif(imgpath, f'epoch_{e+1}.gif', samples)
 
-            # Save model
-            torch.save(trainer.model.state_dict(), modelpath + f'unet_{kwargs["dim"]}_{kwargs["epochs"]}.pt')
+            # Save checkpoint
+            chkpt = {
+                'epoch': e,
+                'model_state_dict': trainer.model.state_dict(),
+                'optimizer_state_dict': trainer.optimizer.state_dict(),
+                'ema_state_dict': trainer.model_ema.state_dict(),
+            }
+            ema_flag = '_ema' if kwargs['ema'] else ''
+            torch.save(chkpt, modelpath + f'chpkt_{kwargs['dim']}_{kwargs['epochs']}_{kwargs['prediction']}{ema_flag}.pt')
 
 
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=1000, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=10, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
-    parser.add_argument('--batch_size', '--b', type=int, default=32, help='Batch size')
-    parser.add_argument('--dim', '--d', type=int, default=96, help='Model dimension')
+    parser.add_argument('--batch_size', '--b', type=int, default=128, help='Batch size')
+    parser.add_argument('--dim', '--d', type=int, default=64, help='Model dimension')
     parser.add_argument('--num_downsamples', '--down', type=int, default=2, help='Number of downsamples')
     parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
     parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
@@ -135,6 +163,10 @@ if __name__ == "__main__":
     parser.add_argument('--val_interval', '--v_i', type=int, help='After how many epochs to validate', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=36, help='Number of samples to generate')
+    parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
+    parser.add_argument('--ema', action='store_true', help='Whether to use model EMA')
+    parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
+    parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
 
     args = parser.parse_args()
 
@@ -154,6 +186,8 @@ if __name__ == "__main__":
     
 
 
+## TO DO:
+# Code infrastructure for saving and loagding checkpoints
 
     
 

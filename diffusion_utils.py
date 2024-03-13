@@ -377,10 +377,11 @@ class Loss:
 
 class Trainer:
     
-    def __init__(self, model, lr, timesteps, prediction, degradation, noise_schedule, **kwargs):
+    def __init__(self, model, model_ema, lr, timesteps, prediction, degradation, noise_schedule, **kwargs):
 
         self.device = kwargs['device']
         self.model = model.to(self.device)
+        self.model_ema = model_ema.to(self.device)
         self.prediction = prediction
         self.timesteps = timesteps
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
@@ -397,6 +398,8 @@ class Trainer:
         self.reconstruction = Reconstruction(**general_kwargs)
         self.loss = Loss(**general_kwargs)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        self.apply_ema = kwargs['ema']
+        self.ema_steps = kwargs['model_ema_steps']
 
         # To Do: Save and load model and optimizer
         # if os.path.exists('./checkpoints'):
@@ -440,9 +443,13 @@ class Trainer:
     def train_epoch(self, trainloader, valloader, val = False):
         
         epoch_loss = 0  
-        for x_0, _ in tqdm(trainloader, total=len(trainloader)):
+        for i, data in tqdm(enumerate(trainloader), total=len(trainloader)):
+            x_0, _ = data
             x_0 = x_0.to(self.device)
             epoch_loss += self.train_iter(x_0)
+
+            if self.ema and i % self.ema_steps==0:
+                self.model_ema.update_parameters(self.model)
         
         val_loss = 0
         if val:
@@ -450,6 +457,7 @@ class Trainer:
             for x_0, _ in tqdm(valloader, total=len(valloader)):
                 x_0 = x_0.to(self.device)
                 val_loss += self.train_iter(x_0)
+        
             
         return epoch_loss/len(trainloader), val_loss/len(valloader)
      
@@ -470,7 +478,7 @@ class Sampler:
             torch.manual_seed(torch.randint(100000, (1,)).item())
 
     @torch.no_grad() 
-    def sample_ddpm(self, model, batch_size, return_trajectory = False):
+    def sample_ddpm(self, model, batch_size, return_trajectory = True):
         
         x_t = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
         samples = []
@@ -490,13 +498,13 @@ class Sampler:
     
 
     @torch.no_grad() 
-    def sample_ddim(self, model, batch_size, return_trajectory = False):
+    def sample_ddim(self, model, batch_size, return_trajectory = True):
         ## To be implemented
         pass
 
 
     @torch.no_grad()
-    def sample_cold(self, model, batch_size, return_trajectory = False):
+    def sample_cold(self, model, batch_size, return_trajectory = True):
 
         # Initialize an empty tensor to store the batch
         x_t = torch.empty(batch_size, model.channels, model.image_size, model.image_size, device=self.device)
@@ -525,7 +533,18 @@ class Sampler:
         
 
                 
-            
+class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
+    """Maintains moving averages of model parameters using an exponential decay.
+    ``ema_avg = decay * avg_model_param + (1 - decay) * model_param``
+    `torch.optim.swa_utils.AveragedModel <https://pytorch.org/docs/stable/optim.html#custom-averaging-strategies>`_
+    is used to compute the EMA.
+    """
+
+    def __init__(self, model, decay, device="cpu"):
+        def ema_avg(avg_model_param, model_param, num_averaged):
+            return decay * avg_model_param + (1 - decay) * model_param
+
+        super().__init__(model, device, ema_avg, use_buffers=True)
 
 
 
