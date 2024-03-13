@@ -132,8 +132,8 @@ def main(**kwargs):
             # Sav sampled images
             samples = sampler.sample(model_ema.module, kwargs['n_samples'])
             save_image(samples, os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=int(math.sqrt(kwargs['n_samples'])))
-            save_video(imgpath, f'epoch_{e+1}.mp4', samples)
-            save_gif(imgpath, f'epoch_{e+1}.gif', samples)
+            save_video(samples, imgpath, f'epoch_{e+1}.mp4',)
+            save_gif(samples, imgpath, f'epoch_{e+1}.gif')
 
             # Save checkpoint
             chkpt = {
@@ -164,7 +164,7 @@ if __name__ == "__main__":
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=36, help='Number of samples to generate')
     parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
-    parser.add_argument('--ema', action='store_true', help='Whether to use model EMA')
+    parser.add_argument('--skip_ema', action='store_true', help='Whether to use model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
     parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
 
@@ -185,9 +185,6 @@ if __name__ == "__main__":
     main(**vars(args))
     
 
-
-## TO DO:
-# Code infrastructure for saving and loagding checkpoints
 
     
 

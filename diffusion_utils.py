@@ -398,7 +398,7 @@ class Trainer:
         self.reconstruction = Reconstruction(**general_kwargs)
         self.loss = Loss(**general_kwargs)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
-        self.apply_ema = kwargs['ema']
+        self.apply_ema = not kwargs['skip_ema']
         self.ema_steps = kwargs['model_ema_steps']
 
         # To Do: Save and load model and optimizer
@@ -448,7 +448,7 @@ class Trainer:
             x_0 = x_0.to(self.device)
             epoch_loss += self.train_iter(x_0)
 
-            if self.ema and i % self.ema_steps==0:
+            if self.apply_ema and i % self.ema_steps==0:
                 self.model_ema.update_parameters(self.model)
         
         val_loss = 0

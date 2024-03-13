@@ -21,7 +21,7 @@ def create_dirs(**kwargs):
     return imgpath, modelpath
 
 
-def save_video(save_dir, samples, name = "process.mp4"):
+def save_video(samples, save_dir, name = "process.mp4"):
     """ Saves a video from Pytorch tensor 'samples'. 
     Arguments:
     samples: Tensor of shape: (video_length, n_channels, height, width)
@@ -50,7 +50,7 @@ def save_video(save_dir, samples, name = "process.mp4"):
     writer.release()
 
 
-def save_gif(save_dir, samples, name="process.gif"):
+def save_gif(samples, save_dir, name="process.gif"):
     """ Saves a gif from Pytorch tensor 'samples'. Arguments:
     samples: Tensor of shape: (video_length, n_channels, height, width)
     save_dir: Directory where to save the gif"""
