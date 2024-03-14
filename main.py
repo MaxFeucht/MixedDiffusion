@@ -28,13 +28,15 @@ def load_data(batch_size = 32):
         os.makedirs('./data/MNIST')
     
     # Set up training data
-    training_data = datasets.MNIST(root='./data/MNIST', train=True, download=True, transform=T.Compose([
-                                                                                                    T.ToTensor()
-                                                                                                ]))
+    training_data = datasets.MNIST(root='./data/MNIST', 
+                                   train=True, 
+                                   download=True, 
+                                   transform=T.Compose([T.ToTensor()]))
     # Set up validation data
-    val_data = datasets.MNIST(root='./data/MNIST', train=False, download=True, transform=T.Compose([
-                                                                                                    T.ToTensor()
-                                                                                                ]))
+    val_data = datasets.MNIST(root='./data/MNIST', 
+                                   train=False, 
+                                   download=True, 
+                                   transform=T.Compose([T.ToTensor()]))
 
     # Set up data loaders
     train_loader = torch.utils.data.DataLoader(training_data, batch_size=batch_size, shuffle=True)
@@ -131,7 +133,8 @@ def main(**kwargs):
         
             # Sav sampled images
             samples = sampler.sample(model_ema.module, kwargs['n_samples'])
-            save_image(samples, os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=int(math.sqrt(kwargs['n_samples'])))
+            save_image(samples[0], os.path.join(imgpath, f'epoch_{e+1}_0.png'), nrow=int(math.sqrt(kwargs['n_samples'])))
+            save_image(samples[-1], os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=int(math.sqrt(kwargs['n_samples'])))
             save_video(samples, imgpath, f'epoch_{e+1}.mp4',)
             save_gif(samples, imgpath, f'epoch_{e+1}.gif')
 
@@ -142,29 +145,29 @@ def main(**kwargs):
                 'optimizer_state_dict': trainer.optimizer.state_dict(),
                 'ema_state_dict': trainer.model_ema.state_dict(),
             }
-            ema_flag = '_ema' if kwargs['ema'] else ''
-            torch.save(chkpt, modelpath + f'chpkt_{kwargs['dim']}_{kwargs['epochs']}_{kwargs['prediction']}{ema_flag}.pt')
+            ema_flag = '' if kwargs['skip_ema'] else '_ema'
+            torch.save(chkpt, os.path.join(modelpath, f'chpkt_{kwargs['dim']}_{kwargs['epochs']}_{kwargs['prediction']}{ema_flag}.pt'))
 
 
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=10, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=400, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
-    parser.add_argument('--batch_size', '--b', type=int, default=128, help='Batch size')
+    parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int, default=64, help='Model dimension')
     parser.add_argument('--num_downsamples', '--down', type=int, default=2, help='Number of downsamples')
     parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
-    parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
+    parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--val_interval', '--v_i', type=int, help='After how many epochs to validate', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=36, help='Number of samples to generate')
-    parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
-    parser.add_argument('--skip_ema', action='store_true', help='Whether to use model EMA')
+    parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
+    parser.add_argument('--skip_ema', action='store_false', help='Whether to use model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
     parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
 

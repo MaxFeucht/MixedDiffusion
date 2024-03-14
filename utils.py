@@ -40,7 +40,7 @@ def save_video(samples, save_dir, name = "process.mp4"):
         imgs.append(image_grid)
 
     video_size = tuple(reversed(tuple(s for s in imgs[0].shape[:2])))
-    writer = cv2.VideoWriter(save_dir + name, cv2.VideoWriter_fourcc(*'mp4v'),
+    writer = cv2.VideoWriter(os.path.join(save_dir,name), cv2.VideoWriter_fourcc(*'mp4v'),
                              30, video_size)
     
     for i in range(len(imgs)):
@@ -66,6 +66,6 @@ def save_gif(samples, save_dir, name="process.gif"):
             1, 2, 0).to('cpu', torch.uint8).numpy())
         imgs.append(im)
 
-    imgs[0].save(save_dir + name, save_all=True,
+    imgs[0].save(os.path.join(save_dir,name), save_all=True,
                  append_images=imgs[1:], duration=0.5, loop=0)
     

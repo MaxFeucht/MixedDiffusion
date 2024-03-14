@@ -401,15 +401,11 @@ class Trainer:
         self.apply_ema = not kwargs['skip_ema']
         self.ema_steps = kwargs['model_ema_steps']
 
-        # To Do: Save and load model and optimizer
-        # if os.path.exists('./checkpoints'):
-        #     self.model.load_state_dict(torch.load('./checkpoints/model.pth'))
-        #     self.optimizer.load_state_dict(torch.load('./checkpoints/optimizer.pth'))
-        #     print("Model and optimizer loaded")
-
 
     def train_iter(self, x_0):
-        
+
+        self.model.train()
+
         t = torch.randint(0, self.timesteps, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
         x_t = self.degrader.degrade(x_0, t)
         pred = self.reconstruction.model_prediction(self.model, x_t, t, return_x0=False) # Model prediction in correct form with coefficients applied
@@ -465,7 +461,7 @@ class Trainer:
     
 class Sampler:
     
-    def __init__(self, timesteps, prediction, noise_schedule, degradation, fixed_seed = True, **kwargs):
+    def __init__(self, timesteps, prediction, noise_schedule, degradation, fixed_seed = False, **kwargs):
         self.degradation = Degradation(timesteps=timesteps, degradation=degradation, prediction=prediction, noise_schedule=noise_schedule, **kwargs)
         self.reconstruction = Reconstruction(timesteps=timesteps, prediction=prediction, degradation = degradation, noise_schedule=noise_schedule, **kwargs)
         self.prediction = prediction
@@ -474,15 +470,17 @@ class Sampler:
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.fixed_seed = fixed_seed
 
-        if fixed_seed:
-            torch.manual_seed(torch.randint(100000, (1,)).item())
+        # if fixed_seed:
+        #     torch.manual_seed(torch.randint(100000, (1,)).item())
 
     @torch.no_grad() 
-    def sample_ddpm(self, model, batch_size, return_trajectory = True):
-        
+    def sample_ddpm(self, model, batch_size, return_trajectory):
+
+        model.eval()
+
         x_t = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
-        samples = []
         
+        samples = []
         for t in tqdm(reversed(range(self.timesteps)), desc="DDPM Sampling"):
             samples.append(x_t) 
             t = torch.full((batch_size,), t).to(self.device)
@@ -491,20 +489,19 @@ class Sampler:
             x0_estimate = self.reconstruction.model_prediction(model, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
             x0_estimate.clamp_(-1, 1) # Clip the estimate to the range [-1, 1]
             x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x0_estimate + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
-
             x_t = x_t_m1
-            
-        return x_t if not return_trajectory else samples
+        
+        return x_t.unsqueeze(0) if not return_trajectory else samples
     
 
     @torch.no_grad() 
-    def sample_ddim(self, model, batch_size, return_trajectory = True):
+    def sample_ddim(self, model, batch_size, return_trajectory):
         ## To be implemented
         pass
 
 
     @torch.no_grad()
-    def sample_cold(self, model, batch_size, return_trajectory = True):
+    def sample_cold(self, model, batch_size, return_trajectory):
 
         # Initialize an empty tensor to store the batch
         x_t = torch.empty(batch_size, model.channels, model.image_size, model.image_size, device=self.device)
@@ -522,7 +519,7 @@ class Sampler:
             x_tm1 = x_t -  self.degradation.degrade(x_0_hat, t) + self.degradation.degrade(x_0_hat, t-1)
             x_t = x_tm1 
 
-        return x_t if not return_trajectory else x_t
+        return x_t.unsqueeze(0) if not return_trajectory else samples
 
 
     def sample(self, model, batch_size, return_trajectory = False):
