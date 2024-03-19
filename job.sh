@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=test
+#SBATCH --job-name=blur_residual_test
 #SBATCH --time=00:15:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
@@ -29,18 +29,19 @@ source $HOME/.bashrc
 conda activate
 
 # Scratch directory has far more space than home directory.
-cd /var/scratch/mft520
+mkdir /var/scratch/mft520/experiments
+cd /var/scratch/mft520/experiments
 
-# Base directory for the experiment
-mkdir $HOME/experiments
-cd $HOME/experiments
+# # Base directory for the experiment
+# mkdir $HOME/experiments
+# cd $HOME/experiments
 
 # Simple trick to create a unique directory for each run of the script
-echo $$
-mkdir o`echo $$`
-cd o`echo $$`
+# echo $$
+# mkdir o`echo $$`
+# cd o`echo $$`
 
 # Run the actual experiment. 
 source ~/anaconda3/bin/activate diffusion
-python /home/mft520/MixedDiffusion/main.py --epochs 500 --t 500 --dim 128 --deg noise
+python /home/mft520/MixedDiffusion/main.py --epochs 100 --t 500 --dim 128 --deg blur --prediction residual
 echo "Script finished"

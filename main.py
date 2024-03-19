@@ -155,7 +155,7 @@ if __name__ == "__main__":
     parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
     parser.add_argument('--num_downsamples', '--down', type=int, default=2, help='Number of downsamples')
     parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method')
-    parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
+    parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
