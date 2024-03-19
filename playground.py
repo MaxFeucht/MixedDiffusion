@@ -14,6 +14,7 @@ from torchvision.utils import save_image
 
 from unet import UNet
 from scripts.karras_unet import KarrasUnet
+from scripts.complete_denoising import GaussianDiffusion
 from diffusion_utils import Degradation, Scheduler, Reconstruction, Trainer, Sampler, Blurring, DenoisingCoefs
 from utils import create_dirs
 
@@ -169,5 +170,87 @@ model = UNet(image_size=28, channels=1, num_downsamples=2, dim=32, dim_max=128)
 ckpt=torch.load("./models/steps_00002345.pt")
 model.load_state_dict(ckpt["model"])
 
+
+# %%
+
+
+## UNIT TESTS
+
+
+## Forward Diffusion
+def extract(a, t, x_shape):
+    b, *_ = t.shape
+    out = a.gather(-1, t)
+    return out.reshape(b, *((1,) * (len(x_shape) - 1)))
+
+default_args = {
+    'timesteps': 50,
+    'lr': 1e-4,
+    'epochs': 500,
+    'batch_size': 32,
+    'dim': 128,
+    'num_downsamples': 2,
+    'prediction': 'x0',
+    'degradation': 'noise',
+    'noise_schedule': 'cosine',
+    'dataset': 'mnist',
+    'verbose': False,
+    'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+    'skip_ema': False,
+    'model_ema_steps': 10,
+    'model_ema_decay': 0.9999,
+}
+
+trainloader, valloader = load_data(default_args['batch_size'])
+
+x, _ = next(iter(trainloader))   
+channels, imsize = x[0].shape[0], x[0].shape[-1]
+
+# Define Model
+unet = UNet(image_size=imsize, channels=channels, num_downsamples=default_args['num_downsamples'], dim=default_args['dim'], dim_max=default_args['dim']*2**default_args['num_downsamples'])
+
+# Define Trainer and Sampler
+trainer = Trainer(model = unet, **default_args)
+
+lr_diffusion = GaussianDiffusion(model = unet,
+                image_size = imsize,
+                timesteps = default_args['timesteps'],
+                sampling_timesteps = None,
+                objective = 'pred_x0',
+                beta_schedule = 'cosine',
+                schedule_fn_kwargs = dict(),
+                ddim_sampling_eta = 0.,
+                auto_normalize = False,
+                offset_noise_strength = 0.,  # https://www.crosslabs.org/blog/diffusion-with-offset-noise
+                min_snr_loss_weight = False, # https://arxiv.org/abs/2303.09556
+                min_snr_gamma = 5)
+        
+
+
+x0, _ = next(iter(trainloader))   
+x = x.to(default_args['device'])
+noise = torch.randn(x.shape).to(default_args['device'])
+t = torch.randint(0, default_args['timesteps'], (x.shape[0],)).to(default_args['device'])
+
+mine_xt = trainer.degrader.degrade(x0, t, noise = noise)
+lr_xt = lr_diffusion.q_sample(x0, t, noise=noise)
+
+mine_xt == lr_xt
+
+## CHECK
+
+
+
+plt.imshow(mine_xt[0].squeeze().detach().cpu().numpy())
+plt.imshow(lr_xt[0].squeeze().detach().cpu().numpy())
+
+
+trainer.degrader.noise_coefs.alphas_cumprod == lr_diffusion.alphas_cumprod
+
+
+torch.sqrt(trainer.degrader.noise_coefs.alphas_cumprod) == lr_diffusion.sqrt_alphas_cumprod
+
+
+## Forward Diffusion
 
 # %%

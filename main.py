@@ -14,9 +14,11 @@ from torchvision.utils import save_image
 
 
 from unet import UNet
+from mnist_unet import MNISTUnet
 from scripts.karras_unet import KarrasUnet
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
 from utils import create_dirs, save_video, save_gif
+
 
 import sys
 sys.argv = ['']
@@ -99,27 +101,23 @@ def main(**kwargs):
                 dim = kwargs['dim'], 
                 dim_max =  kwargs['dim']*2**kwargs['num_downsamples'])
     
-    # Define Model EMA
-    adjust = 1 * args.batch_size * args.model_ema_steps / args.epochs # The 1 in the beginning is symbolizing the number of distributed processes (1 for single GPU) 
-    alpha = 1.0 - args.model_ema_decay
-    alpha = min(1.0, alpha * adjust)
-    model_ema = ExponentialMovingAverage(unet, device=kwargs['device'], decay=1.0 - alpha)
-
+    
     # Define Trainer and Sampler
-    trainer = Trainer(model = unet, model_ema = model_ema, **kwargs)
+    trainer = Trainer(model = unet, **kwargs)
     sampler = Sampler(**kwargs)
 
     imgpath, modelpath = create_dirs(**kwargs)
+    ema_flag = '' if kwargs['skip_ema'] else '_ema'
 
     if kwargs['load_checkpoint']:
         try:
-            chkpt = torch.load(modelpath + f'chpkt_{kwargs["dim"]}_{kwargs["epochs"]}_{kwargs["prediction"]}.pt')
+            chkpt = torch.load(os.path.join(modelpath, f'chpkt_{kwargs["dim"]}_{kwargs["epochs"]}_{kwargs["prediction"]}{ema_flag}.pt'))
             trainer.model.load_state_dict(chkpt['model_state_dict'])
             trainer.optimizer.load_state_dict(chkpt['optimizer_state_dict'])
             trainer.model_ema.load_state_dict(chkpt['ema_state_dict'])
-            print("Checkpoint loaded")
-        except:
-            print("No checkpoint found")
+            print("Checkpoint loaded, continuing training from epoch", chkpt['epoch'] + 1)
+        except Exception as e:
+            print("No checkpoint found, exception: ", e)
 
     # Training Loop
     for e in range(kwargs['epochs']):
@@ -131,9 +129,8 @@ def main(**kwargs):
         if val_flag:
             print(f"Epoch {e} Validation Loss: {valloss}")
         
-            # Sav sampled images
-            samples = sampler.sample(model_ema.module, kwargs['n_samples'])
-            save_image(samples[0], os.path.join(imgpath, f'epoch_{e+1}_0.png'), nrow=int(math.sqrt(kwargs['n_samples'])))
+            # Save sampled images
+            samples = sampler.sample(trainer.model, kwargs['n_samples'])
             save_image(samples[-1], os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=int(math.sqrt(kwargs['n_samples'])))
             save_video(samples, imgpath, f'epoch_{e+1}.mp4',)
             save_gif(samples, imgpath, f'epoch_{e+1}.gif')
@@ -145,29 +142,28 @@ def main(**kwargs):
                 'optimizer_state_dict': trainer.optimizer.state_dict(),
                 'ema_state_dict': trainer.model_ema.state_dict(),
             }
-            ema_flag = '' if kwargs['skip_ema'] else '_ema'
             torch.save(chkpt, os.path.join(modelpath, f'chpkt_{kwargs['dim']}_{kwargs['epochs']}_{kwargs['prediction']}{ema_flag}.pt'))
 
 
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=400, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=2000, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
-    parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
-    parser.add_argument('--dim', '--d', type=int, default=64, help='Model dimension')
+    parser.add_argument('--batch_size', '--b', type=int, default=128, help='Batch size')
+    parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
     parser.add_argument('--num_downsamples', '--down', type=int, default=2, help='Number of downsamples')
-    parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
-    parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
+    parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method')
+    parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--val_interval', '--v_i', type=int, help='After how many epochs to validate', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=36, help='Number of samples to generate')
-    parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
-    parser.add_argument('--skip_ema', action='store_false', help='Whether to use model EMA')
+    parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
+    parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
     parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
 
@@ -190,4 +186,11 @@ if __name__ == "__main__":
 
 
     
+
+# To Do Today:
+
+# Debug Blurring Diffusion by comparing training and sampling 1:1 with Bansal et al.
+
+
+
 

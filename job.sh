@@ -1,9 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=test
-#SBATCH --time=6:00:00
+#SBATCH --time=00:15:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
+#SBATCH -C A4000
 #SBATCH --gres=gpu:1
 #SBATCH -o output.out
 
@@ -26,6 +27,9 @@ module load cuda11.3/toolkit/11.3.1
 # This loads the anaconda virtual environment with our packages
 source $HOME/.bashrc
 conda activate
+
+# Scratch directory has far more space than home directory.
+cd /var/scratch/mft520
 
 # Base directory for the experiment
 mkdir $HOME/experiments

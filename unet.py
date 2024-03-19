@@ -350,7 +350,7 @@ class EncoderBlock(Module):
         
         if exists(emb):
             scale = self.to_emb(emb) + 1
-            x = x * rearrange(scale, 'b c -> b c 1 1') # Note:Embedding is applied by multiplication with the input tensor, not concatenation!
+            x = x * rearrange(scale, 'b c -> b c 1 1') # Note: Embedding is applied by multiplication with the input tensor, not concatenation!
 
         x = self.block2(x)
 

@@ -95,7 +95,7 @@ class Degradation:
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
 
 
-    def noising(self, x_0, t):
+    def noising(self, x_0, t, noise = None):
         """
         Function to add noise to an image x at time t.
         
@@ -104,9 +104,13 @@ class Degradation:
         :return torch.Tensor: The degraded image at time t
         """
 
+        if noise is None:
+            noise = torch.randn_like(x_0, device = self.device)
+            raise Warning('Noise not provided, using random noise')
+
         x_0_coef, residual_coef = self.noise_coefs.forward_process(t)
         x_0_coef, residual_coef = x_0_coef.to(self.device), residual_coef.to(self.device)
-        x_t = x_0_coef * x_0 + residual_coef * torch.randn_like(x_0, device = self.device)
+        x_t = x_0_coef * x_0 + residual_coef * noise
         return x_t
 
 
@@ -159,7 +163,7 @@ class Degradation:
         return x_t
     
     
-    def degrade(self, x, t):
+    def degrade(self, x, t, noise = None):
         """
         Function to degrade an image x at time t.
         
@@ -172,7 +176,7 @@ class Degradation:
             The degraded image at time t
         """
         if self.degradation == 'noise':
-            return self.noising(x, t)
+            return self.noising(x, t, noise)
         elif self.degradation == 'blur':
             return self.blurring(x, t)
         elif self.degradation == 'fadeblack':
@@ -277,9 +281,9 @@ class DenoisingCoefs:
         :return: tuple
             The coefficients for the Denoising Diffusion process
         """
-        
-        x0_coef = torch.sqrt(self.alphas_cumprod.gather(-1, t)).reshape(-1, 1, 1, 1)
-        residual_coef =  torch.sqrt(1. - self.alphas_cumprod.gather(-1, t)).reshape(-1, 1, 1, 1)
+        alpha_t = self.alphas_cumprod.gather(-1, t).reshape(-1, 1, 1, 1)
+        x0_coef = torch.sqrt(alpha_t)
+        residual_coef =  torch.sqrt(1. - alpha_t)
         return x0_coef, residual_coef
     
     
@@ -315,7 +319,6 @@ class DenoisingCoefs:
     
 
 class Reconstruction:
-    
     
     def __init__(self, prediction, degradation, **kwargs):
         self.prediction = prediction
@@ -362,7 +365,7 @@ class Loss:
         self.degradation = Degradation(**kwargs)
     
     def mse_loss(self, target, pred):    
-        return F.mse_loss(pred, target)
+        return F.mse_loss(pred, target, reduction='mean')
     
     def cold_loss(self, target, pred, t):
         diff = pred - target
@@ -377,11 +380,10 @@ class Loss:
 
 class Trainer:
     
-    def __init__(self, model, model_ema, lr, timesteps, prediction, degradation, noise_schedule, **kwargs):
+    def __init__(self, model, lr, timesteps, prediction, degradation, noise_schedule, **kwargs):
 
         self.device = kwargs['device']
         self.model = model.to(self.device)
-        self.model_ema = model_ema.to(self.device)
         self.prediction = prediction
         self.timesteps = timesteps
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
@@ -397,9 +399,16 @@ class Trainer:
         self.degrader = Degradation(**general_kwargs)
         self.reconstruction = Reconstruction(**general_kwargs)
         self.loss = Loss(**general_kwargs)
-        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, betas=(0.9, 0.99))
         self.apply_ema = not kwargs['skip_ema']
-        self.ema_steps = kwargs['model_ema_steps']
+
+        # Define Model EMA
+        if self.apply_ema:
+            self.ema_steps = kwargs['model_ema_steps']
+            adjust = 1 * kwargs['batch_size'] * self.ema_steps / kwargs['epochs'] # The 1 in the beginning is symbolizing the number of distributed processes (1 for single GPU) 
+            alpha = 1.0 - kwargs['model_ema_decay']
+            alpha = min(1.0, alpha * adjust)
+            self.model_ema = ExponentialMovingAverage(self.model, device=kwargs['device'], decay=1.0 - alpha).to(self.device)
 
 
     def train_iter(self, x_0):
@@ -407,14 +416,17 @@ class Trainer:
         self.model.train()
 
         t = torch.randint(0, self.timesteps, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
-        x_t = self.degrader.degrade(x_0, t)
-        pred = self.reconstruction.model_prediction(self.model, x_t, t, return_x0=False) # Model prediction in correct form with coefficients applied
 
-        if self.deterministic: # Residual either random noise for denoising diffusion or difference between x_0 and x_t for deterministic degradation
+        if self.deterministic:
+            x_t = self.degrader.degrade(x_0, t)
             residual = x_0 - x_t
         else:
-            residual = torch.randn_like(x_0)
-        
+            noise = torch.randn_like(x_0, device=self.device) # Important: Noise to degrade with must be the same as the noise that should be predicted
+            x_t = self.degrader.degrade(x_0, t, noise = noise)
+            residual = noise
+
+        pred = self.reconstruction.model_prediction(self.model, x_t, t, return_x0=False) # Model prediction in correct form with coefficients applied
+
         if self.prediction == 'residual':
             target = residual
         elif self.prediction == 'x0':
@@ -423,9 +435,8 @@ class Trainer:
             raise ValueError('Invalid prediction type')
         
         if self.deterministic: 
-            #loss = self.loss.cold_loss(target, pred, t)
+            loss = self.loss.cold_loss(target, pred, t)
             #loss = self.loss.darras_loss(target, pred, t)
-            loss = self.loss.mse_loss(target, pred)
         else:
             loss = self.loss.mse_loss(target, pred)
 
@@ -456,12 +467,12 @@ class Trainer:
         
             
         return epoch_loss/len(trainloader), val_loss/len(valloader)
-     
+
 
     
 class Sampler:
     
-    def __init__(self, timesteps, prediction, noise_schedule, degradation, fixed_seed = False, **kwargs):
+    def __init__(self, timesteps, prediction, noise_schedule, degradation, fixed_seed = True, **kwargs):
         self.degradation = Degradation(timesteps=timesteps, degradation=degradation, prediction=prediction, noise_schedule=noise_schedule, **kwargs)
         self.reconstruction = Reconstruction(timesteps=timesteps, prediction=prediction, degradation = degradation, noise_schedule=noise_schedule, **kwargs)
         self.prediction = prediction
@@ -470,21 +481,22 @@ class Sampler:
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.fixed_seed = fixed_seed
 
-        # if fixed_seed:
-        #     torch.manual_seed(torch.randint(100000, (1,)).item())
+        if fixed_seed:
+            torch.manual_seed(torch.randint(100000, (1,)).item())
 
     @torch.no_grad() 
     def sample_ddpm(self, model, batch_size, return_trajectory):
 
         model.eval()
 
-        x_t = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
+        dims = (batch_size, model.channels, model.image_size, model.image_size)
+        x_t = torch.randn(dims).to(self.device)
         
         samples = []
         for t in tqdm(reversed(range(self.timesteps)), desc="DDPM Sampling"):
             samples.append(x_t) 
             t = torch.full((batch_size,), t).to(self.device)
-            z = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
+            z = torch.randn(dims).to(self.device)
             posterior_mean_x0, posterior_mean_xt, posterior_var = self.reconstruction.coefs.posterior(t) # Get coefficients for the posterior distribution q(x_{t-1} | x_t, x_0)
             x0_estimate = self.reconstruction.model_prediction(model, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
             x0_estimate.clamp_(-1, 1) # Clip the estimate to the range [-1, 1]
@@ -522,7 +534,7 @@ class Sampler:
         return x_t.unsqueeze(0) if not return_trajectory else samples
 
 
-    def sample(self, model, batch_size, return_trajectory = False):
+    def sample(self, model, batch_size, return_trajectory = True):
         if self.deterministic:
             return self.sample_cold(model, batch_size, return_trajectory)
         else:
@@ -537,7 +549,7 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
     is used to compute the EMA.
     """
 
-    def __init__(self, model, decay, device="cpu"):
+    def __init__(self, model, decay, device="mps"):
         def ema_avg(avg_model_param, model_param, num_averaged):
             return decay * avg_model_param + (1 - decay) * model_param
 

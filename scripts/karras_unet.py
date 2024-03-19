@@ -612,6 +612,7 @@ class KarrasUnet(Module):
             x = encoder(x, emb = emb)
             skips.append(x)
 
+
         # mid
 
         for decoder in self.mids:
