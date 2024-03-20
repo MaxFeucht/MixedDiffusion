@@ -163,11 +163,11 @@ def main(**kwargs):
     # Training Loop
     for e in range(epoch_offset, kwargs['epochs']):
         
-        val_flag = True if (e+1) % kwargs['val_interval'] == 0 else False
-        trainloss, valloss = trainer.train_epoch(trainloader, valloader, val=False)
+        sample_flag = True if (e+1) % kwargs['sample_interval'] == 0 else False
+        trainloss, valloss = trainer.train_epoch(trainloader, valloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
         
         print(f"Epoch {e} Train Loss: {trainloss}")
-        if val_flag:
+        if sample_flag:
             print(f"Epoch {e} Validation Loss: {valloss}")
         
             # Save sampled images
@@ -199,7 +199,7 @@ if __name__ == "__main__":
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
-    parser.add_argument('--val_interval', '--v_i', type=int, help='After how many epochs to validate', default=1)
+    parser.add_argument('--sample_interval', '--v_i', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=72, help='Number of samples to generate')
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
