@@ -121,8 +121,6 @@ def plot_degradation(timesteps, train_loader):
 
 def main(**kwargs):
     
-    print("Arguments: ", kwargs)
-
     trainloader, valloader = load_data(kwargs['batch_size'], kwargs['dataset'])
     
     if kwargs['verbose']:
@@ -226,8 +224,6 @@ if __name__ == "__main__":
     main(**vars(args))
     
 
-
-    
 
 # To Do Today:
 
