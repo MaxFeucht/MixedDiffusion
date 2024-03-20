@@ -52,22 +52,18 @@ prediction="x_0"
 degradation="blur"
 noise_schedule="cosine"
 dataset="mnist"
-verbose=false
 val_interval=10
-cluster=true
 n_samples=72
-load_checkpoint=true
-skip_ema=false
 model_ema_steps=10
 model_ema_decay=0.995
 num_train_steps=700000
 
 
 # Run the actual experiment. 
-python /var/scratch/mft520/MixedDiffusion/main.py epochs=$epochs batch_size=$batch_size timesteps=$timesteps dim=$dim lr=$lr \
-                                                prediction=$prediction degradation=$degradation noise_schedule=$noise_schedule \
-                                                dataset=$dataset verbose=$verbose val_interval=$val_interval cluster=$cluster \
-                                                n_samples=$n_samples load_checkpoint=$load_checkpoint skip_ema=$skip_ema \
-                                                model_ema_steps=$model_ema_steps model_ema_decay=$model_ema_decay \
-                                                num_train_steps=$num_train_steps
+python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size $batch_size --timesteps $timesteps --dim $dim \
+                                                --lr $lr --prediction $prediction --degradation $degradation \
+                                                --noise_schedule $noise_schedule --dataset $dataset --val_interval $val_interval \
+                                                --n_samples $n_samples --num_train_steps $num_train_steps \
+                                                --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
+                                                --load_checkpoint --cluster 
 echo "Script finished"

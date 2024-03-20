@@ -150,7 +150,6 @@ def main(**kwargs):
             trainer.model.load_state_dict(chkpt['model_state_dict'])
             trainer.optimizer.load_state_dict(chkpt['optimizer_state_dict'])
             trainer.model_ema.load_state_dict(chkpt['ema_state_dict'])
-            
             epoch_offset = chkpt['epoch']
             print("Checkpoint loaded, continuing training from epoch", epoch_offset + 1)
             
@@ -158,6 +157,9 @@ def main(**kwargs):
             print("No checkpoint found, exception: ", e)
             epoch_offset = 0
 
+    else:
+        epoch_offset = 0
+        
     # Training Loop
     for e in range(epoch_offset, kwargs['epochs']):
         
@@ -198,7 +200,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--val_interval', '--v_i', type=int, help='After how many epochs to validate', default=1)
-    parser.add_argument('--cluster', '--clust', action='store_false', help='Whether to run script locally')
+    parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=72, help='Number of samples to generate')
     parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
