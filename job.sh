@@ -62,7 +62,7 @@ num_train_steps=700000
 # Run the actual experiment. 
 python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size $batch_size --timesteps $timesteps --dim $dim \
                                                 --lr $lr --prediction $prediction --degradation $degradation \
-                                                --noise_schedule $noise_schedule --dataset $dataset --val_interval $val_interval \
+                                                --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --num_train_steps $num_train_steps \
                                                 --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
                                                 --load_checkpoint --cluster 
