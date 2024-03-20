@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=blur_residual_test
-#SBATCH --time=00:15:00
+#SBATCH --time=7:30:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
@@ -42,6 +42,5 @@ cd /var/scratch/mft520/experiments
 # cd o`echo $$`
 
 # Run the actual experiment. 
-source ~/anaconda3/bin/activate diffusion
-python /home/var/scratch/mft520/MixedDiffusion/main.py --epochs 100 --t 500 --dim 128 --deg blur --prediction residual
+python /var/scratch/mft520/MixedDiffusion/main.py --epochs 100 --t 300 --dim 256 --deg blur --prediction x_0 --dataset mnist
 echo "Script finished"
