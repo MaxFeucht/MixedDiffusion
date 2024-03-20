@@ -12,7 +12,6 @@ from torchvision import datasets
 from torchvision import transforms as T
 from torchvision.utils import save_image
 
-
 from unet import UNet
 from mnist_unet import MNISTUnet
 from scripts.karras_unet import KarrasUnet
@@ -23,22 +22,57 @@ from utils import create_dirs, save_video, save_gif
 import sys
 sys.argv = ['']
 
-def load_data(batch_size = 32):
+def load_data(batch_size = 32, dataset = 'mnist'):
     
+    assert dataset in ['mnist', 'cifar10', 'celeba', 'lsun_churches'],f"Invalid dataset, choose from ['mnist', 'cifar10', 'celeba', 'lsun_churches']"
+
     # Check if directory exists
-    if not os.path.exists('./data/MNIST'):
-        os.makedirs('./data/MNIST')
+    if not os.path.exists(f'./data/{dataset.split("_")[0].upper()}'):
+        os.makedirs(f'./data/{dataset.split("_")[0].upper()}')
     
-    # Set up training data
-    training_data = datasets.MNIST(root='./data/MNIST', 
-                                   train=True, 
-                                   download=True, 
-                                   transform=T.Compose([T.ToTensor()]))
-    # Set up validation data
-    val_data = datasets.MNIST(root='./data/MNIST', 
-                                   train=False, 
-                                   download=True, 
-                                   transform=T.Compose([T.ToTensor()]))
+    if dataset == 'mnist':
+
+        training_data = datasets.MNIST(root='./data/MNIST', 
+                                    train=True, 
+                                    download=True, 
+                                    transform=T.Compose([T.ToTensor()]))
+        val_data = datasets.MNIST(root='./data/MNIST', 
+                                    train=False, 
+                                    download=True, 
+                                    transform=T.Compose([T.ToTensor()]))
+    
+    elif dataset == 'cifar10':
+
+        training_data = datasets.CIFAR10(root='./data/CIFAR10', 
+                                    train=True, 
+                                    download=True, 
+                                    transform=T.Compose([T.ToTensor()]))
+        val_data = datasets.CIFAR10(root='./data/CIFAR10', 
+                                    train=False, 
+                                    download=True, 
+                                    transform=T.Compose([T.ToTensor()]))
+    
+    elif dataset == 'celeba':
+
+        training_data = datasets.CelebA(root='./data/CELEBA', 
+                                    split='train', 
+                                    download=False, 
+                                    transform=T.Compose([T.ToTensor()]))
+        val_data = datasets.CelebA(root='./data/CELEBA', 
+                                    split='test', 
+                                    download=False, 
+                                    transform=T.Compose([T.ToTensor()]))
+    
+    elif dataset == 'lsun_churches':
+
+        training_data = datasets.LSUN(root='./data/LSUN_CHURCHES/', 
+                                    classes=['church_outdoor_train'], 
+                                    transform=T.Compose([T.ToTensor()]))
+        val_data = datasets.LSUN(root='./data/LSUN_CHURCHES/', 
+                                    classes=['church_outdoor_val'], 
+                                    transform=T.Compose([T.ToTensor()]))
+    
+
 
     # Set up data loaders
     train_loader = torch.utils.data.DataLoader(training_data, batch_size=batch_size, shuffle=True)
@@ -86,7 +120,7 @@ def plot_degradation(timesteps, train_loader):
 
 def main(**kwargs):
     
-    trainloader, valloader = load_data(kwargs['batch_size'])
+    trainloader, valloader = load_data(kwargs['batch_size'], kwargs['dataset'])
     
     if kwargs['verbose']:
         plot_degradation(10, trainloader)
@@ -111,7 +145,7 @@ def main(**kwargs):
 
     if kwargs['load_checkpoint']:
         try:
-            chkpt = torch.load(os.path.join(modelpath, f'chpkt_{kwargs["dim"]}_{kwargs["epochs"]}_{kwargs["prediction"]}{ema_flag}.pt'))
+            chkpt = torch.load(os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['epochs']}_{kwargs['prediction']}{ema_flag}.pt"))
             trainer.model.load_state_dict(chkpt['model_state_dict'])
             trainer.optimizer.load_state_dict(chkpt['optimizer_state_dict'])
             trainer.model_ema.load_state_dict(chkpt['ema_state_dict'])
@@ -142,13 +176,13 @@ def main(**kwargs):
                 'optimizer_state_dict': trainer.optimizer.state_dict(),
                 'ema_state_dict': trainer.model_ema.state_dict(),
             }
-            torch.save(chkpt, os.path.join(modelpath, f'chpkt_{kwargs['dim']}_{kwargs['epochs']}_{kwargs['prediction']}{ema_flag}.pt'))
+            torch.save(chkpt, os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['epochs']}_{kwargs['prediction']}{ema_flag}.pt"))
 
 
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=2000, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=40, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=128, help='Batch size')
@@ -157,7 +191,7 @@ if __name__ == "__main__":
     parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method')
     parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
-    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset')
+    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--val_interval', '--v_i', type=int, help='After how many epochs to validate', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
@@ -166,6 +200,7 @@ if __name__ == "__main__":
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
     parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
+    parser.add_argument('--num_train_steps', type=int, default=700000, help='Number of training steps')
 
     args = parser.parse_args()
 
@@ -173,7 +208,7 @@ if __name__ == "__main__":
     args.device = 'cuda' if torch.cuda.is_available() else 'mps'
 
     if not args.cluster:
-        print("Running locally")
+        print("Running locally, Cluster =", args.cluster)
         args.timesteps = int(args.timesteps/2)
         args.dim = int(args.dim/2)
         if args.device == 'cuda':

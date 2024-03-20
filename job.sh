@@ -43,5 +43,5 @@ cd /var/scratch/mft520/experiments
 
 # Run the actual experiment. 
 source ~/anaconda3/bin/activate diffusion
-python /home/mft520/MixedDiffusion/main.py --epochs 100 --t 500 --dim 128 --deg blur --prediction residual
+python /home/var/scratch/mft520/MixedDiffusion/main.py --epochs 100 --t 500 --dim 128 --deg blur --prediction residual
 echo "Script finished"

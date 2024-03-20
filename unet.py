@@ -518,8 +518,7 @@ class UNet(Module):
 
         # Attention
         # attn_res = set(tuple(attn_res)) Original code, but is inflexible, writing dynamic version below
-        attn_res = set([(image_size // 2**x) for x in range(1, num_downsamples)]) # Attention resolutions are every layer except the first one
-        
+        attn_res = set([(image_size // 2**x) for x in range(1, num_downsamples+1)]) # Attention resolutions are every layer except the first one
         
         # Arguments for Encoder and Decoder Blocks
         block_kwargs = dict(

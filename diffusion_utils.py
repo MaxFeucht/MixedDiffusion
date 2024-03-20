@@ -59,16 +59,21 @@ class Scheduler:
             raise ValueError('Invalid schedule type')
 
     
-    def get_blur_schedule(self, timesteps):
+    def get_blur_schedule(self, timesteps, std, type = 'constant'):
         
         # 0.01 * t + 0.35 CIFAR-10
         
         # MNIST:
         # Rissanen: Max of 20, min of 0.5, interpolated --> Investigate more clearly in the future and also use Hoogeboom for further explanation (blurring schedule slightly better explained there)
         # Bansal: Constant 7, recursive application
-        
-        return torch.linspace(0, timesteps-1, timesteps)
 
+        # The standard deviation of the kernel starts at 1 and increases exponentially at the rate of 0.01.        
+        if type == 'constant':
+            return torch.ones(timesteps, dtype=torch.float32) * std
+
+        if type == 'exponential':
+            return torch.exp(std * torch.arange(timesteps, dtype=torch.float32))
+       
         
         
 class Degradation:
@@ -82,14 +87,14 @@ class Degradation:
         assert degradation in ['noise', 'blur', 'fadeblack', 'fadeblack_blur'], 'Invalid degradation type, choose from noise, blur, fadeblack, fadeblack_blur'
         self.degradation = degradation
         
-        assert dataset in ['mnist', 'cifar', 'celeba'], 'Invalid dataset'
+        assert dataset in ['mnist', 'cifar10', 'celeba', 'lsun_churches'],f"Invalid dataset, choose from ['mnist', 'cifar10', 'celeba', 'lsun_churches']"
         
-        # Default MNIST settings
-        blur_kwargs = {'channels': 1, 
-                        'kernel_size': 11, 
-                        'kernel_std': 2, 
+        # Default settings
+        blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
+                        'kernel_size': 27, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
+                        'kernel_std': 7 if dataset == 'mnist' else 0.01, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase
                         'timesteps': timesteps, 
-                        'blur_routine': 'Constant'}
+                        'blur_routine': 'constant' if dataset == 'mnist' else 'exponential'}
             
         self.blur = Blurring(**blur_kwargs)
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
@@ -198,10 +203,11 @@ class Blurring:
                 num_timesteps (int): Number of diffusion timesteps. Default is 40.
                 blur_routine (str): Routine used for blurring. Default is 'Constant'.
             """
-            
+            scheduler = Scheduler()
+
             self.channels = channels
             self.kernel_size = kernel_size
-            self.kernel_std = kernel_std
+            self.kernel_stds = scheduler.get_blur_schedule(timesteps = timesteps, std = kernel_std, type = blur_routine) 
             self.num_timesteps = timesteps
             self.blur_routine = blur_routine
         
@@ -242,18 +248,9 @@ class Blurring:
         
         kernels = []
         for i in range(self.num_timesteps):
-            if self.blur_routine == 'Incremental':
-                kernels.append(self.get_conv((self.kernel_size, self.kernel_size), (self.kernel_std*(i+1), self.kernel_std*(i+1)) ) )
-            elif self.blur_routine == 'Constant': # For MNIST
-                kernels.append(self.get_conv((self.kernel_size, self.kernel_size), (self.kernel_std, self.kernel_std)))
-            elif self.blur_routine == 'Exponential':
-                ks = self.kernel_size
-                kstd = torch.exp(self.kernel_std * i)
-                kernels.append(self.get_conv((ks, ks), (kstd, kstd)))
-        
+            kernels.append(self.get_conv((self.kernel_size, self.kernel_size), (self.kernel_stds[i], self.kernel_stds[i]))) 
         return kernels
     
-
 
 
 class DenoisingCoefs:
