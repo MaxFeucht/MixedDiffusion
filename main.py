@@ -220,6 +220,7 @@ if __name__ == "__main__":
             warnings.warn('Consider running model on cluster-scale if CUDA is available')
     
     print("Device: ", args.device)
+    print("Arguments: ", args)
 
     main(**vars(args))
     
