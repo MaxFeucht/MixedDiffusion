@@ -6,6 +6,7 @@ import time
 import math
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+import warnings
 
 import torch
 from torchvision import datasets
@@ -149,12 +150,15 @@ def main(**kwargs):
             trainer.model.load_state_dict(chkpt['model_state_dict'])
             trainer.optimizer.load_state_dict(chkpt['optimizer_state_dict'])
             trainer.model_ema.load_state_dict(chkpt['ema_state_dict'])
-            print("Checkpoint loaded, continuing training from epoch", chkpt['epoch'] + 1)
+            
+            epoch_offset = chkpt['epoch']
+            print("Checkpoint loaded, continuing training from epoch", epoch_offset + 1)
+            
         except Exception as e:
             print("No checkpoint found, exception: ", e)
 
     # Training Loop
-    for e in range(kwargs['epochs']):
+    for e in range(epoch_offset, kwargs['epochs']):
         
         val_flag = True if (e+1) % kwargs['val_interval'] == 0 else False
         trainloss, valloss = trainer.train_epoch(trainloader, valloader, val=False)
@@ -165,7 +169,7 @@ def main(**kwargs):
         
             # Save sampled images
             samples = sampler.sample(trainer.model, kwargs['n_samples'])
-            save_image(samples[-1], os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=int(math.sqrt(kwargs['n_samples'])))
+            save_image(samples[-1], os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=12) #int(math.sqrt(kwargs['n_samples']))
             save_video(samples, imgpath, f'epoch_{e+1}.mp4',)
             save_gif(samples, imgpath, f'epoch_{e+1}.gif')
 
@@ -195,7 +199,7 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--val_interval', '--v_i', type=int, help='After how many epochs to validate', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
-    parser.add_argument('--n_samples', type=int, default=36, help='Number of samples to generate')
+    parser.add_argument('--n_samples', type=int, default=72, help='Number of samples to generate')
     parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
@@ -212,7 +216,7 @@ if __name__ == "__main__":
         args.timesteps = int(args.timesteps/2)
         args.dim = int(args.dim/2)
         if args.device == 'cuda':
-            raise Warning('Consider running model on cluster-scale if CUDA is available')
+            warnings.warn('Consider running model on cluster-scale if CUDA is available')
     
     print("Device: ", args.device)
 
