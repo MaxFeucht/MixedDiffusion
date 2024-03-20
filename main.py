@@ -121,6 +121,8 @@ def plot_degradation(timesteps, train_loader):
 
 def main(**kwargs):
     
+    print("Arguments: ", kwargs)
+
     trainloader, valloader = load_data(kwargs['batch_size'], kwargs['dataset'])
     
     if kwargs['verbose']:
@@ -192,7 +194,6 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=128, help='Batch size')
     parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
-    parser.add_argument('--num_downsamples', '--down', type=int, default=2, help='Number of downsamples')
     parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method')
     parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
