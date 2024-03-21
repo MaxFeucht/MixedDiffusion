@@ -1,10 +1,10 @@
 #!/bin/bash
 #SBATCH --job-name=blur_residual_test
-#SBATCH --time=7:30:00
+#SBATCH --time=00:15:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
-#SBATCH -C A4000
+#SBATCH -C A6000
 #SBATCH --gres=gpu:1
 #SBATCH -o output.out
 
@@ -44,9 +44,9 @@ cd /var/scratch/mft520/experiments
 ## Set Vars
 
 lr=1e-4
-batch_size=64
+batch_size=128
 timesteps=300
-dim=128
+dim=65
 epochs=100
 prediction="x0"
 degradation="blur"
@@ -65,5 +65,5 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --num_train_steps $num_train_steps \
                                                 --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
-                                                --load_checkpoint --cluster 
+                                                --load_checkpoint --cluster --add_noise
 echo "Script finished"

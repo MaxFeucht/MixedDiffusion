@@ -21,7 +21,7 @@ from utils import create_dirs, save_video, save_gif
 
 
 import sys
-# sys.argv = ['']
+sys.argv = ['']
 
 def load_data(batch_size = 32, dataset = 'mnist'):
     
@@ -140,10 +140,16 @@ def main(**kwargs):
     # Define Trainer and Sampler
     trainer = Trainer(model = unet, **kwargs)
     sampler = Sampler(**kwargs)
+    
+    # Fit GMM for cold sampling in deblurring diffusion
+    if kwargs['degradation'] == 'blur':
+        sampler.fit_gmm(trainloader, clusters=1)
 
+    # Create directories
     imgpath, modelpath = create_dirs(**kwargs)
     ema_flag = '' if kwargs['skip_ema'] else '_ema'
 
+    # Load Checkpoint
     if kwargs['load_checkpoint']:
         try:
             chkpt = torch.load(os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['epochs']}_{kwargs['prediction']}{ema_flag}.pt"))
@@ -171,7 +177,7 @@ def main(**kwargs):
             print(f"Epoch {e} Validation Loss: {valloss}")
         
             # Save sampled images
-            samples = sampler.sample(trainer.model, kwargs['n_samples'])
+            samples = sampler.sample(trainer.model, kwargs['n_samples'], break_symmetry = kwargs['add_noise'])
             save_image(samples[-1], os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=12) #int(math.sqrt(kwargs['n_samples']))
             save_video(samples, imgpath, f'epoch_{e+1}.mp4',)
             save_gif(samples, imgpath, f'epoch_{e+1}.gif')
@@ -192,9 +198,9 @@ if __name__ == "__main__":
     parser.add_argument('--timesteps', '--t', type=int, default=40, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
-    parser.add_argument('--batch_size', '--b', type=int, default=128, help='Batch size')
+    parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
-    parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method')
+    parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
     parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
@@ -207,6 +213,8 @@ if __name__ == "__main__":
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
     parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
     parser.add_argument('--num_train_steps', type=int, default=700000, help='Number of training steps')
+
+    parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the deterministic sampling process')
 
     args = parser.parse_args()
 

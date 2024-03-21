@@ -2,6 +2,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchgeometry as tgm
+from sklearn.mixture import GaussianMixture
+
 import math
 from tqdm import tqdm
 
@@ -478,9 +480,41 @@ class Sampler:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.fixed_seed = fixed_seed
+        self.gmm = None
 
         if fixed_seed:
             torch.manual_seed(torch.randint(100000, (1,)).item())
+        
+
+    def fit_gmm(self, dataloader, clusters = 1):
+        """
+        Function to fit a Gaussian Mixture Model to the mean of data in the dataloader. 
+        Used to sample cold start images for deblurring diffusion.
+
+        :param GMM: The Gaussian Mixture Model class
+        :param DataLoader dataloader: The dataloader containing the data
+        :param int clusters: The number of clusters in the Gaussian Mixture Model
+        """
+
+        # Fit GMM for cold sampling
+        batch_size = 100
+
+        all_samples = None # Initialize all_samples
+        for i, data in enumerate(dataloader, 0):
+            img, _ = data
+            img = torch.mean(img, [2, 3])
+            if all_samples is None:
+                all_samples = img
+            else:
+                all_samples = torch.cat((all_samples, img), dim=0)
+
+        all_samples = all_samples
+
+        self.gmm = GaussianMixture(n_components=clusters, covariance_type='full', tol = 0.001)
+
+        self.gmm.fit(all_samples)
+        print("GMM fitted")
+
 
     @torch.no_grad() 
     def sample_ddpm(self, model, batch_size, return_trajectory):
@@ -511,18 +545,30 @@ class Sampler:
 
 
     @torch.no_grad()
-    def sample_cold(self, model, batch_size, return_trajectory):
+    def sample_cold(self, model, batch_size, break_symmetry, return_trajectory = True):
 
-        # Initialize an empty tensor to store the batch
-        x_t = torch.empty(batch_size, model.channels, model.image_size, model.image_size, device=self.device)
-
-        # Fill each depth slice with a single decimal drawn uniformly from [0, 1]
-        for i in range(batch_size):
-            for j in range(model.channels):
-                x_t[i, j, :, :] = torch.full((model.image_size, model.image_size), torch.rand(1).item(), dtype=torch.float32)
+        # Sample x_T from GMM
+        if self.gmm is None:
+            raise ValueError('GMM not fitted, please fit GMM before cold sampling')
+        
+        # Sample channel-wise mean values GMM, then expand it to the correct dimensions to build x_T
+        channel_means = self.gmm.sample(num_datapoints=batch_size)
+        channel_means = channel_means.to(self.device)
+        channel_means = channel_means.unsqueeze(2)
+        channel_means = channel_means.unsqueeze(3)
+        x_t = channel_means.expand(batch_size, model.channels, model.image_size, model.image_size) # Expand the channel-wise means to the correct dimensions to build x_T
+        x_t = x_t.float()
+                
+        # Noise injection for breaking symmetry
+        # Original code: noise_levels = [0.001, 0.002, 0.003, 0.004] # THIS GIVES US A HINT THAT THE NOISE LEVELS HAVE TO BE FINELY TUNED
+        noise_level = 0.002
+        if break_symmetry:
+            x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
+        
+        symm_string = 'with broken Symmetry' if break_symmetry else ''
 
         samples = []
-        for t in tqdm(reversed(range(self.timesteps)), desc="Cold Sampling"):
+        for t in tqdm(reversed(range(self.timesteps)), desc=f"Cold Sampling {symm_string}"):
             samples.append(x_t) 
             t_tensor = torch.tensor([t]).repeat(x_t.shape[0]).float().to(self.device)
             x_0_hat = model(x_t, t_tensor)
@@ -532,9 +578,9 @@ class Sampler:
         return x_t.unsqueeze(0) if not return_trajectory else samples
 
 
-    def sample(self, model, batch_size, return_trajectory = True):
+    def sample(self, model, batch_size, return_trajectory = True, break_symmetry = False):
         if self.deterministic:
-            return self.sample_cold(model, batch_size, return_trajectory)
+            return self.sample_cold(model, batch_size, break_symmetry, return_trajectory)
         else:
             return self.sample_ddpm(model, batch_size, return_trajectory)
         
