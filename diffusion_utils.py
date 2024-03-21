@@ -432,7 +432,8 @@ class Trainer:
             raise ValueError('Invalid prediction type')
         
         if self.deterministic: 
-            loss = self.loss.cold_loss(target, pred, t)
+            loss = self.loss.mse_loss(target, pred)
+            #loss = self.loss.cold_loss(target, pred, t)
             #loss = self.loss.darras_loss(target, pred, t)
         else:
             loss = self.loss.mse_loss(target, pred)
