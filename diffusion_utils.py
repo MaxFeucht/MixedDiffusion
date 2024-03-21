@@ -552,8 +552,7 @@ class Sampler:
             raise ValueError('GMM not fitted, please fit GMM before cold sampling')
         
         # Sample channel-wise mean values GMM, then expand it to the correct dimensions to build x_T
-        channel_means = self.gmm.sample(n_samples=batch_size)
-        channel_means = channel_means.to(self.device)
+        channel_means = torch.tensor(self.gmm.sample(n_samples=batch_size), device=self.device)
         channel_means = channel_means.unsqueeze(2)
         channel_means = channel_means.unsqueeze(3)
         x_t = channel_means.expand(batch_size, model.channels, model.image_size, model.image_size) # Expand the channel-wise means to the correct dimensions to build x_T

@@ -44,9 +44,9 @@ cd /var/scratch/mft520/experiments
 ## Set Vars
 
 lr=1e-4
-batch_size=128
+batch_size=256
 timesteps=300
-dim=65
+dim=128
 epochs=100
 prediction="x0"
 degradation="blur"
