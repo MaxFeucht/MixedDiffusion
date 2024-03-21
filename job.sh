@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=blur_residual_test
-#SBATCH --time=00:15:00
+#SBATCH --time=12:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
@@ -47,11 +47,11 @@ lr=1e-4
 batch_size=256
 timesteps=300
 dim=128
-epochs=100
+epochs=1000
 prediction="x0"
 degradation="blur"
 noise_schedule="cosine"
-dataset="mnist"
+dataset="cifar10"
 sample_interval=1
 n_samples=72
 model_ema_steps=10

@@ -564,10 +564,11 @@ class Sampler:
         if break_symmetry:
             x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
         
-        symm_string = 'with broken Symmetry' if break_symmetry else ''
+        symm_string = 'with broken symmetry' if break_symmetry else ''
 
         samples = []
         for t in tqdm(reversed(range(self.timesteps)), desc=f"Cold Sampling {symm_string}"):
+            print(t)
             samples.append(x_t) 
             t_tensor = torch.tensor([t]).repeat(x_t.shape[0]).float().to(self.device)
             x_0_hat = model(x_t, t_tensor)
