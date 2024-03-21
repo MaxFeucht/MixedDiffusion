@@ -552,7 +552,7 @@ class Sampler:
             raise ValueError('GMM not fitted, please fit GMM before cold sampling')
         
         # Sample channel-wise mean values GMM, then expand it to the correct dimensions to build x_T
-        channel_means = self.gmm.sample(num_datapoints=batch_size)
+        channel_means = self.gmm.sample(n_samples=batch_size)
         channel_means = channel_means.to(self.device)
         channel_means = channel_means.unsqueeze(2)
         channel_means = channel_means.unsqueeze(3)
