@@ -43,7 +43,7 @@ cd /var/scratch/mft520/experiments
 
 ## Set Vars
 
-lr=1e-4
+lr=2e-5
 batch_size=256
 timesteps=300
 dim=128

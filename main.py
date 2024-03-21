@@ -196,7 +196,7 @@ if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
     parser.add_argument('--timesteps', '--t', type=int, default=300, help='Degradation timesteps')
-    parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
+    parser.add_argument('--lr', type=float, default=2e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
