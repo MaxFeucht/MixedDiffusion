@@ -21,7 +21,7 @@ from utils import create_dirs, save_video, save_gif
 
 
 import sys
-sys.argv = ['']
+#sys.argv = ['']
 
 def load_data(batch_size = 32, dataset = 'mnist'):
     
