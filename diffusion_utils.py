@@ -550,13 +550,13 @@ class Sampler:
         # Sample x_T from GMM
         if self.gmm is None:
             raise ValueError('GMM not fitted, please fit GMM before cold sampling')
-        
-        # Sample channel-wise mean values GMM, then expand it to the correct dimensions to build x_T
-        channel_means = torch.tensor(self.gmm.sample(n_samples=batch_size), device=self.device)
-        channel_means = channel_means.unsqueeze(2)
-        channel_means = channel_means.unsqueeze(3)
-        x_t = channel_means.expand(batch_size, model.channels, model.image_size, model.image_size) # Expand the channel-wise means to the correct dimensions to build x_T
-        x_t = x_t.float()
+        else:
+            assert isinstance(self.gmm, GaussianMixture), 'GMM not fitted correctly'
+            channel_means = self.gmm.sample(n_samples=batch_size)[0] # Sample from GMM
+            channel_means = torch.tensor(channel_means, device=self.device)
+            channel_means = channel_means.unsqueeze(2).unsqueeze(3)
+            x_t = channel_means.expand(batch_size, model.channels, model.image_size, model.image_size) # Expand the channel-wise means to the correct dimensions to build x_T
+            x_t = x_t.float()
                 
         # Noise injection for breaking symmetry
         # Original code: noise_levels = [0.001, 0.002, 0.003, 0.004] # THIS GIVES US A HINT THAT THE NOISE LEVELS HAVE TO BE FINELY TUNED
@@ -571,7 +571,7 @@ class Sampler:
             samples.append(x_t) 
             t_tensor = torch.tensor([t]).repeat(x_t.shape[0]).float().to(self.device)
             x_0_hat = model(x_t, t_tensor)
-            x_tm1 = x_t -  self.degradation.degrade(x_0_hat, t) + self.degradation.degrade(x_0_hat, t-1)
+            x_tm1 = x_t - self.degradation.degrade(x_0_hat, t) + self.degradation.degrade(x_0_hat, t-1)
             x_t = x_tm1 
 
         return x_t.unsqueeze(0) if not return_trajectory else samples
