@@ -9,6 +9,7 @@ from tqdm import tqdm
 import warnings
 
 import torch
+import torch.nn as nn
 from torchvision import datasets
 from torchvision import transforms as T
 from torchvision.utils import save_image
@@ -19,9 +20,10 @@ from scripts.karras_unet import KarrasUnet
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
 from utils import create_dirs, save_video, save_gif
 
-
+# Check if ipykernel is running to check if we're working locally or on the cluster
 import sys
-#sys.argv = ['']
+if 'ipykernel' in sys.modules:
+    sys.argv = ['']
 
 def load_data(batch_size = 32, dataset = 'mnist'):
     
@@ -82,41 +84,49 @@ def load_data(batch_size = 32, dataset = 'mnist'):
     return train_loader, val_loader
 
 
-def plot_degradation(timesteps, train_loader):
-    
-    noise = Degradation(timesteps = timesteps, degradation = 'noise', noise_schedule='cosine')
-    blur = Degradation(timesteps = timesteps, degradation = 'blur')
-    black = Degradation(timesteps = timesteps, degradation = 'fadeblack')
-    black_blur = Degradation(timesteps = timesteps, degradation = 'fadeblack_blur')
+def plot_degradation(timesteps, train_loader, **kwargs):
+
+    noise = Degradation(timesteps = timesteps, degradation = 'noise', noise_schedule='cosine', dataset=kwargs['dataset'])
+    blur = Degradation(timesteps = timesteps, degradation = 'blur', noise_schedule='cosine', dataset=kwargs['dataset'])
+    black = Degradation(timesteps = timesteps, degradation = 'fadeblack', noise_schedule='cosine', dataset=kwargs['dataset'])
+    black_blur = Degradation(timesteps = timesteps, degradation = 'fadeblack_blur', noise_schedule='cosine', dataset=kwargs['dataset'])
+
+    timesteps = min(50, timesteps)
 
     plt.figure(figsize=(16, 5))
-    for i in range(timesteps):
+    for i in tqdm(range(timesteps), total = timesteps):
+
+        ind = i
+        t = torch.tensor([i]).to('mps')
 
         x, y = next(iter(train_loader))   
-        x = x[0].squeeze().numpy()
-        
-        plt.subplot(5, timesteps, 0*timesteps+i+1)
-        plt.imshow(x)
+        x = x[0].squeeze().to('mps')
+
+        plt.subplot(5, timesteps, 0*timesteps+ind+1)
+        plt.imshow(x.cpu().permute(1, 2, 0))
         plt.axis('off')
 
-        plt.subplot(5, timesteps, 1*timesteps+i+1)
-        plt.imshow(noise.degrade(x, i))
+        plt.subplot(5, timesteps, 1*timesteps+ind+1)
+        plt.imshow(noise.degrade(x, t).cpu().squeeze().permute(1, 2, 0))
         plt.axis('off')
     
-        plt.subplot(5, timesteps, 2*timesteps+i+1)
-        plt.imshow(blur.degrade(x, i).cpu(), vmin=0, vmax=1)
+        plt.subplot(5, timesteps, 2*timesteps+ind+1)
+        plt.imshow(blur.degrade(x, t).cpu().permute(1, 2, 0), vmin=0, vmax=1)
         plt.axis('off')
         
-        plt.subplot(5, timesteps, 3*timesteps+i+1)
-        plt.imshow(black.degrade(x, i).cpu(), vmin=0, vmax=1)   
+        plt.subplot(5, timesteps, 3*timesteps+ind+1)
+        plt.imshow(black.degrade(x, t).cpu().permute(1, 2, 0), vmin=0, vmax=1)   
         plt.axis('off')
         
-        plt.subplot(5, timesteps, 4*timesteps+i+1)
-        plt.imshow(black_blur.degrade(x, i).cpu(), vmin=0, vmax=1)   
+        plt.subplot(5, timesteps, 4*timesteps+ind+1)
+        plt.imshow(black_blur.degrade(x, t).cpu().permute(1, 2, 0), vmin=0, vmax=1)   
         plt.axis('off')
 
     # axis off
     plt.suptitle('Image degradation', size = 18)
+
+
+    print(noise.noise_coefs.betas)
 
 
 def main(**kwargs):
@@ -124,7 +134,8 @@ def main(**kwargs):
     trainloader, valloader = load_data(kwargs['batch_size'], kwargs['dataset'])
     
     if kwargs['verbose']:
-        plot_degradation(10, trainloader)
+        plot_degradation(train_loader=trainloader, **kwargs)
+        #raise ValueError("Plotted degradation, exiting")
     
     x, _ = next(iter(trainloader))   
     channels, imsize = x[0].shape[0], x[0].shape[-1]
@@ -136,7 +147,11 @@ def main(**kwargs):
                 dim = kwargs['dim'], 
                 dim_max =  kwargs['dim']*2**kwargs['num_downsamples'])
     
-    
+    # Enable Multi-GPU training
+    if torch.cuda.device_count() > 1:
+        print("Let's use", torch.cuda.device_count(), "GPUs!")
+        unet = nn.DataParallel(unet)
+
     # Define Trainer and Sampler
     trainer = Trainer(model = unet, **kwargs)
     sampler = Sampler(**kwargs)
@@ -158,13 +173,12 @@ def main(**kwargs):
             trainer.model_ema.load_state_dict(chkpt['ema_state_dict'])
             epoch_offset = chkpt['epoch']
             print("Checkpoint loaded, continuing training from epoch", epoch_offset + 1)
-            
         except Exception as e:
-            print("No checkpoint found, exception: ", e)
+            print("No checkpoint found: ", e)
             epoch_offset = 0
-
     else:
         epoch_offset = 0
+
 
     # Training Loop
     for e in range(epoch_offset, kwargs['epochs']):
@@ -192,6 +206,8 @@ def main(**kwargs):
             torch.save(chkpt, os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['epochs']}_{kwargs['prediction']}{ema_flag}.pt"))
 
 
+
+
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
@@ -201,9 +217,9 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
     parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
-    parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
+    parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
-    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--dataset', type=str, default='cifar10', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--sample_interval', '--v_i', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')

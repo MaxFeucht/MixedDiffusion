@@ -7,6 +7,7 @@ from sklearn.mixture import GaussianMixture
 import math
 from tqdm import tqdm
 
+import warnings
 
 ### Forward Process ###
 
@@ -93,10 +94,10 @@ class Degradation:
         
         # Default settings
         blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
-                        'kernel_size': 27, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
-                        'kernel_std': 7 if dataset == 'mnist' else 0.01, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase
+                        'kernel_size': 5, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
+                        'kernel_std': 0.0001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
                         'timesteps': timesteps, 
-                        'blur_routine': 'constant' if dataset == 'mnist' else 'exponential'}
+                        'blur_routine': 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
             
         self.blur = Blurring(**blur_kwargs)
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
@@ -113,7 +114,7 @@ class Degradation:
 
         if noise is None:
             noise = torch.randn_like(x_0, device = self.device)
-            raise Warning('Noise not provided, using random noise')
+            warnings.warn('Noise not provided, using random noise')
 
         x_0_coef, residual_coef = self.noise_coefs.forward_process(t)
         x_0_coef, residual_coef = x_0_coef.to(self.device), residual_coef.to(self.device)
@@ -367,7 +368,7 @@ class Loss:
         return F.mse_loss(pred, target, reduction='mean')
     
     def cold_loss(self, target, pred, t):
-        diff = pred - target
+        diff = torch.abs(pred - target)
         return diff.mean()  # Mean over batch dimension
 
     def darras_loss(self, target, pred, t):
@@ -421,7 +422,7 @@ class Trainer:
             residual = x_0 - x_t
         else:
             noise = torch.randn_like(x_0, device=self.device) # Important: Noise to degrade with must be the same as the noise that should be predicted
-            x_t = self.degrader.degrade(x_0, t, noise = noise)
+            x_t = self.degrader.degrade(x_0, t, noise=noise)
             residual = noise
 
         pred = self.reconstruction.model_prediction(self.model, x_t, t, return_x0=False) # Model prediction in correct form with coefficients applied
@@ -434,8 +435,8 @@ class Trainer:
             raise ValueError('Invalid prediction type')
         
         if self.deterministic: 
-            loss = self.loss.mse_loss(target, pred)
-            #loss = self.loss.cold_loss(target, pred, t)
+            #loss = self.loss.mse_loss(target, pred)
+            loss = self.loss.cold_loss(target, pred, t)
             #loss = self.loss.darras_loss(target, pred, t)
         else:
             loss = self.loss.mse_loss(target, pred)
