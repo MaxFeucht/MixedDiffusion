@@ -156,10 +156,10 @@ def main(**kwargs):
                 dim = kwargs['dim'], 
                 dim_max =  kwargs['dim']*2**kwargs['num_downsamples'])
     
-    # Enable Multi-GPU training
-    if torch.cuda.device_count() > 1:
-        print("Let's use", torch.cuda.device_count(), "GPUs!")
-        unet = nn.DataParallel(unet)
+    # # Enable Multi-GPU training
+    # if torch.cuda.device_count() > 1:
+    #     print("Let's use", torch.cuda.device_count(), "GPUs!")
+    #     unet = nn.DataParallel(unet)
 
     # Define Trainer and Sampler
     trainer = Trainer(model = unet, **kwargs)
@@ -220,7 +220,7 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=200, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=300, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=2e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
