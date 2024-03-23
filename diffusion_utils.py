@@ -94,8 +94,8 @@ class Degradation:
         
         # Default settings
         blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
-                        'kernel_size': 5, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
-                        'kernel_std': 0.0001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
+                        'kernel_size': 3, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
+                        'kernel_std': 0.000001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
                         'timesteps': timesteps, 
                         'blur_routine': 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
             
@@ -368,8 +368,8 @@ class Loss:
         return F.mse_loss(pred, target, reduction='mean')
     
     def cold_loss(self, target, pred, t):
-        diff = torch.abs(pred - target)
-        return diff.mean()  # Mean over batch dimension
+        diff = pred - target
+        return diff.abs().mean()  # Mean over batch dimension
 
     def darras_loss(self, target, pred, t):
         diff = pred - target # difference between the predicted and the target image / residual
@@ -554,7 +554,7 @@ class Sampler:
         else:
             assert isinstance(self.gmm, GaussianMixture), 'GMM not fitted correctly'
             channel_means = self.gmm.sample(n_samples=batch_size)[0] # Sample from GMM
-            channel_means = torch.tensor(channel_means, device=self.device)
+            channel_means = torch.tensor(channel_means, dtype=torch.float32, device=self.device)
             channel_means = channel_means.unsqueeze(2).unsqueeze(3)
             x_t = channel_means.expand(batch_size, model.channels, model.image_size, model.image_size) # Expand the channel-wise means to the correct dimensions to build x_T
             x_t = x_t.float()
@@ -569,7 +569,6 @@ class Sampler:
 
         samples = []
         for t in tqdm(reversed(range(self.timesteps)), desc=f"Cold Sampling {symm_string}"):
-            print(t)
             samples.append(x_t) 
             t_tensor = torch.tensor([t]).repeat(x_t.shape[0]).float().to(self.device)
             x_0_hat = model(x_t, t_tensor)

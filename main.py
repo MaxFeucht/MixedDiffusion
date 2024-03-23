@@ -99,27 +99,36 @@ def plot_degradation(timesteps, train_loader, **kwargs):
         ind = i
         t = torch.tensor([i]).to('mps')
 
-        x, y = next(iter(train_loader))   
+        x, y = next(iter(train_loader)) 
+
         x = x[0].squeeze().to('mps')
+        
+        if len(x.shape) == 2:
+            x = x.unsqueeze(0)
 
         plt.subplot(5, timesteps, 0*timesteps+ind+1)
         plt.imshow(x.cpu().permute(1, 2, 0))
         plt.axis('off')
 
         plt.subplot(5, timesteps, 1*timesteps+ind+1)
-        plt.imshow(noise.degrade(x, t).cpu().squeeze().permute(1, 2, 0))
+        x_noise = noise.degrade(x, t).cpu()
+        x_noise = x_noise.squeeze(0) if len(x_noise.shape) == 4 else x_noise
+        plt.imshow(x_noise.permute(1, 2, 0), vmin=0, vmax=1)   
         plt.axis('off')
     
         plt.subplot(5, timesteps, 2*timesteps+ind+1)
-        plt.imshow(blur.degrade(x, t).cpu().permute(1, 2, 0), vmin=0, vmax=1)
+        x_blur = blur.degrade(x, t).cpu()
+        x_blur = x_blur.unsqueeze(0) if len(x_blur.shape) == 2 else x_blur
+        plt.imshow(x_blur.permute(1, 2, 0), vmin=0, vmax=1)
         plt.axis('off')
         
         plt.subplot(5, timesteps, 3*timesteps+ind+1)
-        plt.imshow(black.degrade(x, t).cpu().permute(1, 2, 0), vmin=0, vmax=1)   
+        x_black = black.degrade(x, t).cpu()
+        x_black = x_black.unsqueeze(0) if len(x_black.shape) == 2 else x_black
+        plt.imshow(x_black.permute(1, 2, 0), vmin=0, vmax=1)   
         plt.axis('off')
         
         plt.subplot(5, timesteps, 4*timesteps+ind+1)
-        plt.imshow(black_blur.degrade(x, t).cpu().permute(1, 2, 0), vmin=0, vmax=1)   
         plt.axis('off')
 
     # axis off
@@ -211,15 +220,15 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=300, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=200, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=2e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
     parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
-    parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
+    parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
-    parser.add_argument('--dataset', type=str, default='cifar10', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--sample_interval', '--v_i', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
