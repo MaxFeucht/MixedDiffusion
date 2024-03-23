@@ -4,7 +4,7 @@
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
-#SBATCH -C A6000
+#SBATCH -C A4000
 #SBATCH --gres=gpu:1
 #SBATCH -o output.out
 
@@ -51,7 +51,7 @@ epochs=1000
 prediction="x0"
 degradation="blur"
 noise_schedule="cosine"
-dataset="mnist"
+dataset="cifar10"
 sample_interval=1
 n_samples=72
 model_ema_steps=10
