@@ -144,11 +144,8 @@ class Degradation:
         if x_0.requires_grad:
             x.retain_grad()
 
-        # Apply Blurring with the same intensity (t) to all images in batch
-        if isinstance(t, torch.Tensor):
-            t_max = torch.max(t)
-
         # Blur all images to the max, but store all intermediate blurs for later retrieval
+        t_max = torch.max(t)
         max_blurs = []
         for i in range(t_max + 1):
             x = x.unsqueeze(0) if len(x.shape) == 2  else x
@@ -593,7 +590,7 @@ class Sampler:
             samples.append(x_t) 
             t_tensor = torch.tensor([t]).repeat(x_t.shape[0]).float().to(self.device)
             x_0_hat = model(x_t, t_tensor)
-            x_tm1 = x_t - self.degradation.degrade(x_0_hat, t) + self.degradation.degrade(x_0_hat, t-1)
+            x_tm1 = x_t - self.degradation.degrade(x_0_hat, t_tensor) + self.degradation.degrade(x_0_hat, t_tensor - 1)
             x_t = x_tm1 
 
         return x_t.unsqueeze(0) if not return_trajectory else samples
