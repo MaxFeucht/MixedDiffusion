@@ -409,6 +409,9 @@ class Trainer:
             alpha = 1.0 - kwargs['model_ema_decay']
             alpha = min(1.0, alpha * adjust)
             self.model_ema = ExponentialMovingAverage(self.model, device=kwargs['device'], decay=1.0 - alpha).to(self.device)
+        else:
+            self.model_ema = model
+            warnings.warn('No EMA applied')
 
 
     def train_iter(self, x_0):
