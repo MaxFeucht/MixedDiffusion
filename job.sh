@@ -45,7 +45,7 @@ cd /var/scratch/mft520/experiments
 
 lr=2e-5
 batch_size=128
-timesteps=200
+timesteps=40
 dim=128
 epochs=1000
 prediction="x0"
@@ -65,5 +65,5 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --num_train_steps $num_train_steps \
                                                 --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
-                                                --cluster --add_noise
+                                                --cluster #--add_noise
 echo "Script finished"

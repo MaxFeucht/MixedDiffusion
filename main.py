@@ -176,7 +176,7 @@ def main(**kwargs):
     # Load Checkpoint
     if kwargs['load_checkpoint']:
         try:
-            chkpt = torch.load(os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['epochs']}_{kwargs['prediction']}{ema_flag}.pt"))
+            chkpt = torch.load(os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['timesteps']}_{kwargs['prediction']}{ema_flag}.pt"))
             trainer.model.load_state_dict(chkpt['model_state_dict'])
             trainer.optimizer.load_state_dict(chkpt['optimizer_state_dict'])
             trainer.model_ema.load_state_dict(chkpt['ema_state_dict'])
@@ -212,7 +212,7 @@ def main(**kwargs):
                 'optimizer_state_dict': trainer.optimizer.state_dict(),
                 'ema_state_dict': trainer.model_ema.state_dict(),
             }
-            torch.save(chkpt, os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['epochs']}_{kwargs['prediction']}{ema_flag}.pt"))
+            torch.save(chkpt, os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['timesteps']}_{kwargs['prediction']}{ema_flag}.pt"))
 
 
 
@@ -220,13 +220,13 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=200, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=2000, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=2e-5, help='Learning rate')
-    parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
+    parser.add_argument('--epochs', '--e', type=int, default=1000, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
     parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
-    parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
+    parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
