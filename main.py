@@ -220,7 +220,7 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=300, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=2000, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=2e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
@@ -230,11 +230,11 @@ if __name__ == "__main__":
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
-    parser.add_argument('--sample_interval', '--v_i', type=int, help='After how many epochs to sample', default=1)
+    parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=72, help='Number of samples to generate')
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
-    parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
+    parser.add_argument('--skip_ema', action='store_false', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
     parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
     parser.add_argument('--num_train_steps', type=int, default=700000, help='Number of training steps')
