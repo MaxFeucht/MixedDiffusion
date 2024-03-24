@@ -95,7 +95,7 @@ class Degradation:
         # Default settings
         blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
                         'kernel_size': 5, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
-                        'kernel_std': 0.000001 if dataset != 'mnist' else 3, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
+                        'kernel_std': 0.001 if dataset != 'mnist' else 3, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
                         'timesteps': timesteps, 
                         'blur_routine': 'constant' if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
             
@@ -146,6 +146,11 @@ class Degradation:
 
         # Blur all images to the max, but store all intermediate blurs for later retrieval
         t_max = torch.max(t)
+        try:
+            t_max = t_max[0]
+            
+        except:
+            pass
         max_blurs = []
         for i in range(t_max + 1):
             x = x.unsqueeze(0) if len(x.shape) == 2  else x
@@ -588,7 +593,7 @@ class Sampler:
         samples = []
         for t in tqdm(reversed(range(self.timesteps)), desc=f"Cold Sampling {symm_string}"):
             samples.append(x_t) 
-            t_tensor = torch.tensor([t]).repeat(x_t.shape[0]).float().to(self.device)
+            t_tensor = torch.tensor([t], dtype=torch.long).repeat(x_t.shape[0]).to(self.device)
             x_0_hat = model(x_t, t_tensor)
             x_tm1 = x_t - self.degradation.degrade(x_0_hat, t_tensor) + self.degradation.degrade(x_0_hat, t_tensor - 1)
             x_t = x_tm1 
