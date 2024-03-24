@@ -146,9 +146,11 @@ class Degradation:
 
         # Apply Blurring with the same intensity (t) to all images in batch
         if isinstance(t, torch.Tensor):
-            t = t[0].item()
+            t_max = torch.max(t)
 
-        for i in range(t):
+        # Blur all images to the max, but store all intermediate blurs for later retrieval
+        max_blurs = []
+        for i in range(t_max + 1):
             x = x.unsqueeze(0) if len(x.shape) == 2  else x
             x = gaussian_kernels[i](x).squeeze(0) 
 
@@ -156,7 +158,23 @@ class Degradation:
             if x_0.requires_grad:      
                 assert gaussian_kernels[i].requires_grad == False
                 assert x.requires_grad == True 
-        return x
+            
+            max_blurs.append(x)
+        
+        # Choose the correct blur for each image in the batch
+        max_blurs = torch.stack(max_blurs)
+
+        blur_t = []
+        # step is batch size as well so for the 49th step take the step(batch_size)
+        for step in range(t.shape[0]):
+            if step != -1:
+                blur_t.append(max_blurs[t[step], step])
+            else:
+                blur_t.append(x_0[step])
+
+        return torch.stack(blur_t)
+    
+
 
     def blacking(self, x_0, t):
         """

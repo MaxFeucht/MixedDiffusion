@@ -418,7 +418,7 @@ class GaussianDiffusion(nn.Module):
         xt = img
         direct_recons = None
         while(t):
-            step = torch.full((batch_size,), t - 1, dtype=torch.long).cuda()
+            step = torch.full((batch_size,), t - 1, dtype=torch.long)#.cuda()
             x = self.denoise_fn(img, step)
 
             if self.train_routine == 'Final':
