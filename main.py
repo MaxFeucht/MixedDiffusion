@@ -220,7 +220,7 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=2000, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=200, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=2e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=100, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
