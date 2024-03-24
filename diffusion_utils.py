@@ -148,9 +148,9 @@ class Degradation:
         t_max = torch.max(t)
         try:
             t_max = t_max[0]
-            
         except:
             pass
+
         max_blurs = []
         for i in range(t_max + 1):
             x = x.unsqueeze(0) if len(x.shape) == 2  else x
@@ -591,7 +591,7 @@ class Sampler:
         symm_string = 'with broken symmetry' if break_symmetry else ''
 
         samples = []
-        for t in tqdm(reversed(range(self.timesteps)), desc=f"Cold Sampling {symm_string}"):
+        for t in tqdm(reversed(range(1, self.timesteps)), desc=f"Cold Sampling {symm_string}"):
             samples.append(x_t) 
             t_tensor = torch.tensor([t], dtype=torch.long).repeat(x_t.shape[0]).to(self.device)
             x_0_hat = model(x_t, t_tensor)
