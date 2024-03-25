@@ -198,8 +198,8 @@ def main(**kwargs):
             # Save sampled images
             samples = sampler.sample(unet, kwargs['n_samples'], break_symmetry = kwargs['add_noise'])
             save_image(samples[-1], os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=12) #int(math.sqrt(kwargs['n_samples']))
-            save_video(samples, imgpath, f'epoch_{e+1}.mp4',)
-            save_gif(samples, imgpath, f'epoch_{e+1}.gif')
+            save_video(samples, imgpath, nrow = 12, name = f'epoch_{e+1}.mp4')
+            save_gif(samples, imgpath, nrow = 12, name = f'epoch_{e+1}.gif')
 
             # Save checkpoint
             chkpt = {
@@ -229,7 +229,7 @@ if __name__ == "__main__":
     parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=72, help='Number of samples to generate')
-    parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
+    parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
     parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
