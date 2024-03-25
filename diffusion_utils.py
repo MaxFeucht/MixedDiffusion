@@ -505,12 +505,13 @@ class Sampler:
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.fixed_seed = fixed_seed
         self.gmm = None
+        self.break_symmetry = kwargs['add_noise']
 
         if fixed_seed:
             torch.manual_seed(torch.randint(100000, (1,)).item())
         
 
-    def fit_gmm(self, dataloader, clusters = 1):
+    def fit_gmm(self, dataloader, clusters = 1, sample = False):
         """
         Function to fit a Gaussian Mixture Model to the mean of data in the dataloader. 
         Used to sample cold start images for deblurring diffusion.
@@ -540,19 +541,59 @@ class Sampler:
         print("GMM fitted")
 
 
+    def sample_x_T(self, batch_size, channels, image_size):
+        """
+        Function to sample x_T either from a Gaussian Mixture Model or from a random normal distribution.
+
+        :param int batch_size: The batch size of the samples
+        :param int channels: The number of channels in the samples
+        :param int image_size: The size of the images in the samples
+        """
+
+        if self.deterministic:
+
+            # Sample x_T from GMM
+            if self.gmm is None:
+                raise ValueError('GMM not fitted, please fit GMM before cold sampling')
+            else:
+                assert isinstance(self.gmm, GaussianMixture), 'GMM not fitted correctly'
+                channel_means = self.gmm.sample(n_samples=batch_size)[0] # Sample from GMM
+                channel_means = torch.tensor(channel_means, dtype=torch.float32, device=self.device)
+                channel_means = channel_means.unsqueeze(2).unsqueeze(3)
+                x_t = channel_means.expand(batch_size, channels, image_size, image_size) # Expand the channel-wise means to the correct dimensions to build x_T
+                x_t = x_t.float()
+                    
+            # Noise injection for breaking symmetry
+            # Original code: noise_levels = [0.001, 0.002, 0.003, 0.004] # THIS GIVES US A HINT THAT THE NOISE LEVELS HAVE TO BE FINELY TUNED
+            noise_level = 0.002
+            if self.break_symmetry:
+                x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
+        
+        else:
+            # Sample x_T from random normal distribution
+            x_t = torch.randn((batch_size, channels, image_size, image_size), device=self.device)
+        
+        self.x_T = x_t
+
+        print("x_T sampled and fixed")
+
+
     @torch.no_grad() 
     def sample_ddpm(self, model, batch_size, return_trajectory):
 
         model.eval()
 
-        dims = (batch_size, model.channels, model.image_size, model.image_size)
-        x_t = torch.randn(dims).to(self.device)
+        # Sample x_T either every time new or once and keep it fixed 
+        if self.x_T is None:
+            x_t = self.sample_x_T(batch_size, model.channels, model.image_size)
+        else:
+            x_t = self.x_T
         
         samples = []
         for t in tqdm(reversed(range(self.timesteps)), desc="DDPM Sampling"):
             samples.append(x_t) 
             t = torch.full((batch_size,), t).to(self.device)
-            z = torch.randn(dims).to(self.device)
+            z = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
             posterior_mean_x0, posterior_mean_xt, posterior_var = self.reconstruction.coefs.posterior(t) # Get coefficients for the posterior distribution q(x_{t-1} | x_t, x_0)
             model_pred = model(x_t, t)
             x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
@@ -570,26 +611,15 @@ class Sampler:
 
 
     @torch.no_grad()
-    def sample_cold(self, model, batch_size, break_symmetry, return_trajectory = True):
-
-        # Sample x_T from GMM
-        if self.gmm is None:
-            raise ValueError('GMM not fitted, please fit GMM before cold sampling')
-        else:
-            assert isinstance(self.gmm, GaussianMixture), 'GMM not fitted correctly'
-            channel_means = self.gmm.sample(n_samples=batch_size)[0] # Sample from GMM
-            channel_means = torch.tensor(channel_means, dtype=torch.float32, device=self.device)
-            channel_means = channel_means.unsqueeze(2).unsqueeze(3)
-            x_t = channel_means.expand(batch_size, model.channels, model.image_size, model.image_size) # Expand the channel-wise means to the correct dimensions to build x_T
-            x_t = x_t.float()
-                
-        # Noise injection for breaking symmetry
-        # Original code: noise_levels = [0.001, 0.002, 0.003, 0.004] # THIS GIVES US A HINT THAT THE NOISE LEVELS HAVE TO BE FINELY TUNED
-        noise_level = 0.002
-        if break_symmetry:
-            x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
+    def sample_cold(self, model, batch_size, return_trajectory = True):
         
-        symm_string = 'with broken symmetry' if break_symmetry else ''
+        # Sample x_T either every time new or once and keep it fixed 
+        if self.x_T is None:
+            x_t = self.sample_x_T(batch_size, model.channels, model.image_size)
+        else:
+            x_t = self.x_T
+
+        symm_string = 'with broken symmetry' if self.break_symmetry else ''
 
         samples = []
         for t in tqdm(reversed(range(1, self.timesteps)), desc=f"Cold Sampling {symm_string}"):

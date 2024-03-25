@@ -165,6 +165,10 @@ def main(**kwargs):
     if kwargs['degradation'] == 'blur':
         sampler.fit_gmm(trainloader, clusters=1)
 
+    # Fix x_T for sampling
+    if kwargs['fix_sample']:
+        sampler.sample_x_T(kwargs['batch_size'], channels, imsize)
+
     # Create directories
     imgpath, modelpath = create_dirs(**kwargs)
     ema_flag = '' if kwargs['skip_ema'] else '_ema'
@@ -230,6 +234,7 @@ if __name__ == "__main__":
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=72, help='Number of samples to generate')
     parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
+    parser.add_argument('--fix_sample', action='store_false', help='Whether to fix x_T for sampling, to see sample progression')
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
     parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
