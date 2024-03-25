@@ -144,13 +144,10 @@ class Degradation:
         if x_0.requires_grad:
             x.retain_grad()
 
-        # Blur all images to the max, but store all intermediate blurs for later retrieval
-        t_max = torch.max(t)
-        try:
-            t_max = t_max[0]
-        except:
-            pass
 
+        t_max = torch.max(t)
+
+        # Blur all images to the max, but store all intermediate blurs for later retrieval
         max_blurs = []
         for i in range(t_max + 1):
             x = x.unsqueeze(0) if len(x.shape) == 2  else x
@@ -160,19 +157,16 @@ class Degradation:
             if x_0.requires_grad:      
                 assert gaussian_kernels[i].requires_grad == False
                 assert x.requires_grad == True 
-            
+
             max_blurs.append(x)
         
-        # Choose the correct blur for each image in the batch
         max_blurs = torch.stack(max_blurs)
 
+        # Choose the correct blur for each image in the batch
         blur_t = []
-        # step is batch size as well so for the 49th step take the step(batch_size)
         for step in range(t.shape[0]):
-            if step != -1:
-                blur_t.append(max_blurs[t[step], step])
-            else:
-                blur_t.append(x_0[step])
+            blur_t.append(max_blurs[t[step], step])
+            assert max_blurs[t[step], step].shape == x_0.shape[1:], f"Shape mismatch: {max_blurs[t[step], step].shape} and {x_0.shape} at time step {i}"
 
         return torch.stack(blur_t)
     
@@ -186,8 +180,8 @@ class Degradation:
         :param int t: The time step
         :return torch.Tensor: The degraded image at time t
         """
-        
-        x_t = x_0 * (1 - (t+1) / self.timesteps) # +1 bc of zero indexing
+        multiplier = (1 - (t+1) / self.timesteps).reshape(-1, 1, 1, 1)  # +1 bc of zero indexing
+        x_t = multiplier * x_0 
         return x_t
     
     
@@ -448,15 +442,18 @@ class Trainer:
             x_t = self.degrader.degrade(x_0, t, noise=noise)
             residual = noise
 
-        pred = self.reconstruction.model_prediction(self.model, x_t, t, return_x0=False) # Model prediction in correct form with coefficients applied
-
         if self.prediction == 'residual':
             target = residual
+            ret_x0 = False
         elif self.prediction == 'x0':
             target = x_0
+            ret_x0 = True
         else:
             raise ValueError('Invalid prediction type')
         
+        # Get Model prediction with correct output
+        pred = self.reconstruction.model_prediction(self.model, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
+
         if self.deterministic: 
             #loss = self.loss.mse_loss(target, pred)
             loss = self.loss.cold_loss(target, pred, t)

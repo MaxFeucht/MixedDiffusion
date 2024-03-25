@@ -292,10 +292,12 @@ def load_data(batch_size = 32, dataset = 'mnist'):
 
 # # %%
 
+#%%
 # UNIT TESTS - BLURRING DIFFUSION
+dataset = 'cifar10'
 
 default_args = {
-    'timesteps': 300,
+    'timesteps': 50,
     'lr': 1e-4,
     'epochs': 500,
     'batch_size': 32,
@@ -304,16 +306,15 @@ default_args = {
     'prediction': 'x0',
     'degradation': 'blur',
     'noise_schedule': 'cosine',
-    'dataset': 'cifar10',
+    'dataset': dataset,
     'verbose': False,
     'device': 'cuda' if torch.cuda.is_available() else 'cpu',
     'skip_ema': False,
     'model_ema_steps': 10,
     'model_ema_decay': 0.9999,
-    'kernel_size': 3,
-    'kernel_std': 0.1,
-    'blur_routine': 'Exponential'
-}
+    'kernel_size': 5,
+    'kernel_std': 0.001 if dataset != 'mnist' else 3,
+    'blur_routine': 'Constant' if dataset == 'mnist' else 'Exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}}
 
 trainloader, valloader = load_data(default_args['batch_size'], dataset=default_args['dataset'])
 
@@ -355,10 +356,14 @@ mine_xt[idx] == bansal_xt[idx]
 
 plt.figure(figsize=(10, 5))
 plt.subplot(1,2,1)
-plt.imshow(mine_xt[idx].squeeze().permute(1,2,0).detach().cpu().numpy())
+my_img = mine_xt[idx].squeeze().detach().cpu()
+my_img = my_img.unsqueeze(0) if len(my_img.shape) == 2 else my_img
+plt.imshow(my_img.permute(1,2,0).numpy())
 plt.title(f"Mine with t = {t[idx]}")
 plt.subplot(1,2,2)
-plt.imshow(bansal_xt[idx].squeeze().permute(1,2,0).detach().cpu().numpy())
+bansal_img = bansal_xt[idx].squeeze().detach().cpu()
+bansal_img = bansal_img.unsqueeze(0) if len(bansal_img.shape) == 2 else bansal_img
+plt.imshow(bansal_img.permute(1,2,0).numpy())
 plt.title(f"Bansal with t = {t[idx]}")
 plt.show()
 

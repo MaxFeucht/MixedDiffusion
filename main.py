@@ -97,34 +97,30 @@ def plot_degradation(timesteps, train_loader, **kwargs):
     for i in tqdm(range(timesteps), total = timesteps):
 
         ind = i
-        t = torch.tensor([i]).to('mps')
-
         x, y = next(iter(train_loader)) 
-
-        x = x[0].squeeze().to('mps')
-        
-        if len(x.shape) == 2:
-            x = x.unsqueeze(0)
+        t = torch.tensor([i]).repeat(x.shape[0],).to('mps')
+        x = x.to('mps')
 
         plt.subplot(5, timesteps, 0*timesteps+ind+1)
-        plt.imshow(x.cpu().permute(1, 2, 0))
+        x_plain = x[0].unsqueeze(0) if len(x[0].shape) == 2 else x
+        plt.imshow(x_plain[0].cpu().permute(1, 2, 0))
         plt.axis('off')
 
         plt.subplot(5, timesteps, 1*timesteps+ind+1)
         x_noise = noise.degrade(x, t).cpu()
-        x_noise = x_noise.squeeze(0) if len(x_noise.shape) == 4 else x_noise
+        x_noise = x_noise[0].unsqueeze(0) if len(x_noise[0].shape) == 2 else x_noise[0]
         plt.imshow(x_noise.permute(1, 2, 0), vmin=0, vmax=1)   
         plt.axis('off')
     
         plt.subplot(5, timesteps, 2*timesteps+ind+1)
         x_blur = blur.degrade(x, t).cpu()
-        x_blur = x_blur.unsqueeze(0) if len(x_blur.shape) == 2 else x_blur
+        x_blur = x_blur[0].unsqueeze(0) if len(x_blur[0].shape) == 2 else x_blur[0]
         plt.imshow(x_blur.permute(1, 2, 0), vmin=0, vmax=1)
         plt.axis('off')
         
         plt.subplot(5, timesteps, 3*timesteps+ind+1)
         x_black = black.degrade(x, t).cpu()
-        x_black = x_black.unsqueeze(0) if len(x_black.shape) == 2 else x_black
+        x_black = x_black[0].unsqueeze(0) if len(x_black[0].shape) == 2 else x_black[0]
         plt.imshow(x_black.permute(1, 2, 0), vmin=0, vmax=1)   
         plt.axis('off')
         
@@ -144,7 +140,7 @@ def main(**kwargs):
     
     if kwargs['verbose']:
         plot_degradation(train_loader=trainloader, **kwargs)
-        #raise ValueError("Plotted degradation, exiting")
+        raise ValueError("Plotted degradation, exiting")
     
     x, _ = next(iter(trainloader))   
     channels, imsize = x[0].shape[0], x[0].shape[-1]
@@ -220,7 +216,7 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=200, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=2e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=1000, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
