@@ -416,6 +416,7 @@ class Trainer:
         self.loss = Loss(**general_kwargs)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, betas=(0.9, 0.99))
         self.apply_ema = not kwargs['skip_ema']
+        self.test_run = kwargs['test_run']
 
         # Define Model EMA
         if self.apply_ema:
@@ -458,7 +459,6 @@ class Trainer:
 
         if self.deterministic: 
             loss = self.loss.mse_loss(target, pred)
-            #assert torch.all(model_pred == pred), 'Model prediction and reformulation are not the same'
             #loss = self.loss.cold_loss(target, pred, t)
             #loss = self.loss.darras_loss(target, pred, t)
         else:
@@ -481,7 +481,10 @@ class Trainer:
 
             if self.apply_ema and i % self.ema_steps==0:
                 self.model_ema.update_parameters(self.model)
-        
+
+            if self.test_run:
+                break
+
         val_loss = 0
         if val:
             print("Validation")
@@ -522,8 +525,6 @@ class Sampler:
         """
 
         # Fit GMM for cold sampling
-        batch_size = 100
-
         all_samples = None # Initialize all_samples
         for i, data in enumerate(dataloader, 0):
             img, _ = data
@@ -606,7 +607,15 @@ class Sampler:
 
     @torch.no_grad() 
     def sample_ddim(self, model, batch_size, return_trajectory):
-        ## To be implemented
+        
+        # Sample x_T either every time new or once and keep it fixed 
+        if self.x_T is None:
+            x_t = self.sample_x_T(batch_size, model.channels, model.image_size)
+        else:
+            x_t = self.x_T
+        
+        # To be implemented
+            
         pass
 
 
@@ -630,12 +639,13 @@ class Sampler:
             x_tm1 = x_t - self.degradation.degrade(x_0_hat, t_tensor) + self.degradation.degrade(x_0_hat, t_tensor - 1)
             x_t = x_tm1 
 
+        samples.append(x_t)
         return x_t.unsqueeze(0) if not return_trajectory else samples
 
 
-    def sample(self, model, batch_size, return_trajectory = True, break_symmetry = False):
+    def sample(self, model, batch_size, return_trajectory = True):
         if self.deterministic:
-            return self.sample_cold(model, batch_size, break_symmetry, return_trajectory)
+            return self.sample_cold(model, batch_size, return_trajectory)
         else:
             return self.sample_ddpm(model, batch_size, return_trajectory)
         

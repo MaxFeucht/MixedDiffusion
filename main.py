@@ -131,8 +131,6 @@ def plot_degradation(timesteps, train_loader, **kwargs):
     plt.suptitle('Image degradation', size = 18)
 
 
-    print(noise.noise_coefs.betas)
-
 
 def main(**kwargs):
     
@@ -167,7 +165,7 @@ def main(**kwargs):
 
     # Fix x_T for sampling
     if kwargs['fix_sample']:
-        sampler.sample_x_T(kwargs['batch_size'], channels, imsize)
+        sampler.sample_x_T(kwargs['n_samples'], channels, imsize)
 
     # Create directories
     imgpath, modelpath = create_dirs(**kwargs)
@@ -200,10 +198,12 @@ def main(**kwargs):
             print(f"Epoch {e} Validation Loss: {valloss}")
         
             # Save sampled images
-            samples = sampler.sample(unet, kwargs['n_samples'], break_symmetry = kwargs['add_noise'])
-            save_image(samples[-1], os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=12) #int(math.sqrt(kwargs['n_samples']))
-            save_video(samples, imgpath, nrow = 12, name = f'epoch_{e+1}.mp4')
-            save_gif(samples, imgpath, nrow = 12, name = f'epoch_{e+1}.gif')
+            nrow = 6
+            samples = sampler.sample(unet, kwargs['n_samples'])
+            print(f"Num Samples: {len(samples)}, Sample dim: ", samples[0].shape)
+            save_image(samples[-1], os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
+            save_video(samples, imgpath, nrow, f'epoch_{e+1}.mp4')
+            save_gif(samples, imgpath, nrow, f'epoch_{e+1}.gif')
 
             # Save checkpoint
             chkpt = {
@@ -232,7 +232,7 @@ if __name__ == "__main__":
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
-    parser.add_argument('--n_samples', type=int, default=72, help='Number of samples to generate')
+    parser.add_argument('--n_samples', type=int, default=60, help='Number of samples to generate')
     parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
     parser.add_argument('--fix_sample', action='store_false', help='Whether to fix x_T for sampling, to see sample progression')
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
@@ -242,7 +242,8 @@ if __name__ == "__main__":
     parser.add_argument('--kernel_size', type=int, default=5, help='Number of training steps')
     parser.add_argument('--kernel_std', type=float, default=0.01, help='Number of training steps')
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
-
+    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
+    
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the deterministic sampling')
 
     args = parser.parse_args()
@@ -256,6 +257,9 @@ if __name__ == "__main__":
         if args.device == 'cuda':
             warnings.warn('Consider running model on cluster-scale if CUDA is available')
     
+    if args.test_run:
+        print("Running Test Run with only one iter per epoch")
+
     print("Device: ", args.device)
     print("Arguments: ", args)
 

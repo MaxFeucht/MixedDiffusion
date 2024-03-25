@@ -21,7 +21,7 @@ def create_dirs(**kwargs):
     return imgpath, modelpath
 
 
-def save_video(samples, save_dir, nrow, name = "process.mp4"):
+def save_video(samples, save_dir, nrow, name="process.mp4"):
     """ Saves a video from Pytorch tensor 'samples'. 
     Arguments:
     samples: Tensor of shape: (video_length, n_channels, height, width)
@@ -57,9 +57,9 @@ def save_gif(samples, save_dir, nrow, name="process.gif"):
     imgs = []
 
     for idx in range(len(samples)):
-        s = samples[idx].cpu().detach().numpy()[:36]
+        s = samples[idx].cpu().detach().numpy()
         s = np.clip(s * 255, 0, 255).astype(np.uint8)
-        image_grid = make_grid(torch.Tensor(s), nrow, padding=2)
+        image_grid = make_grid(torch.Tensor(s), nrow, padding=0)
         im = Image.fromarray(image_grid.permute(
             1, 2, 0).to('cpu', torch.uint8).numpy())
         imgs.append(im)
