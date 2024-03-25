@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=blur_residual_test
-#SBATCH --time=00:15:00
+#SBATCH --time=08:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
@@ -44,9 +44,9 @@ cd /var/scratch/mft520/experiments
 ## Set Vars
 
 lr=2e-5
-batch_size=128
+batch_size=256
 timesteps=300
-dim=128
+dim=256
 epochs=1000
 prediction="x0"
 degradation="blur"

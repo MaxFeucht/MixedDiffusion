@@ -200,7 +200,6 @@ def main(**kwargs):
             # Save sampled images
             nrow = 6
             samples = sampler.sample(unet, kwargs['n_samples'])
-            print(f"Num Samples: {len(samples)}, Sample dim: ", samples[0].shape)
             save_image(samples[-1], os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
             save_video(samples, imgpath, nrow, f'epoch_{e+1}.mp4')
             save_gif(samples, imgpath, nrow, f'epoch_{e+1}.gif')
@@ -220,8 +219,8 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
-    parser.add_argument('--lr', type=float, default=1e-4, help='Learning rate')
+    parser.add_argument('--timesteps', '--t', type=int, default=100, help='Degradation timesteps')
+    parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=1000, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
@@ -233,7 +232,7 @@ if __name__ == "__main__":
     parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=60, help='Number of samples to generate')
-    parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
+    parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
     parser.add_argument('--fix_sample', action='store_false', help='Whether to fix x_T for sampling, to see sample progression')
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
@@ -242,9 +241,9 @@ if __name__ == "__main__":
     parser.add_argument('--kernel_size', type=int, default=5, help='Number of training steps')
     parser.add_argument('--kernel_std', type=float, default=0.01, help='Number of training steps')
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
-    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
-    
-    parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the deterministic sampling')
+    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
+
+    parser.add_argument('--add_noise', action='store_false', help='Whether to add noise to the deterministic sampling')
 
     args = parser.parse_args()
 
