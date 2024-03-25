@@ -144,7 +144,6 @@ class Degradation:
         if x_0.requires_grad:
             x.retain_grad()
 
-
         t_max = torch.max(t)
 
         # Blur all images to the max, but store all intermediate blurs for later retrieval
@@ -339,30 +338,32 @@ class Reconstruction:
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.coefs = DenoisingCoefs(**kwargs)
 
-    def model_prediction(self, model, x_t, t, return_x0 = False):
+    def reform_pred(self, model_output, x_t, t, return_x0 = False):
         """
-        Function to obtain predictions for a given degraded image x_t at time t, using a trained model and a degrader function.
+        Function to reform predictions for a given degraded image x_t at time t, using the output of a trained model and a degrader function.
         
+        :param torch.Tensor model_output: The output of the model - either the residual or the x0 estimate
         :param torch.Tensor x_t: The degraded image at time t
         :param int t: The time step
         :return torch.Tensor: The predicted image at time t-1
         """
         
         if not self.deterministic: 
-            xt_coef, residual_coef = self.coefs.x0_restore(t)
+            xt_coef, residual_coef = self.coefs.x0_restore(t) # Get coefficients for the Denoising Diffusion process
         else:
-            xt_coef, residual_coef = torch.tensor(1.), torch.tensor(1.)
+            xt_coef, residual_coef = torch.tensor(1.), torch.tensor(1.) # Coefficients are 1 for deterministic degradation
                 
         if self.prediction == 'residual':
-            residual = model(x_t, t)
+            residual = model_output
             if not return_x0:
                 return residual
             else:
                 x0_estimate = xt_coef * x_t - residual_coef * residual 
                 return x0_estimate      
-            
+        
+
         elif self.prediction == 'x0':
-            x0_estimate = model(x_t, t)
+            x0_estimate = model_output
             if return_x0:
                 return x0_estimate
             else:
@@ -452,7 +453,8 @@ class Trainer:
             raise ValueError('Invalid prediction type')
         
         # Get Model prediction with correct output
-        pred = self.reconstruction.model_prediction(self.model, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
+        model_pred = self.model(x_t, t)
+        pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
 
         if self.deterministic: 
             #loss = self.loss.mse_loss(target, pred)
@@ -551,9 +553,10 @@ class Sampler:
             t = torch.full((batch_size,), t).to(self.device)
             z = torch.randn(dims).to(self.device)
             posterior_mean_x0, posterior_mean_xt, posterior_var = self.reconstruction.coefs.posterior(t) # Get coefficients for the posterior distribution q(x_{t-1} | x_t, x_0)
-            x0_estimate = self.reconstruction.model_prediction(model, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
-            x0_estimate.clamp_(-1, 1) # Clip the estimate to the range [-1, 1]
-            x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x0_estimate + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
+            model_pred = model(x_t, t)
+            x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
+            x_0_hat.clamp_(-1, 1) # Clip the estimate to the range [-1, 1]
+            x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x_0_hat + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_t = x_t_m1
         
         return x_t.unsqueeze(0) if not return_trajectory else samples
@@ -591,7 +594,8 @@ class Sampler:
         for t in tqdm(reversed(range(1, self.timesteps)), desc=f"Cold Sampling {symm_string}"):
             samples.append(x_t) 
             t_tensor = torch.tensor([t], dtype=torch.long).repeat(x_t.shape[0]).to(self.device)
-            x_0_hat = model(x_t, t_tensor)
+            model_pred = model(x_t, t_tensor)
+            x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t_tensor, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_tm1 = x_t - self.degradation.degrade(x_0_hat, t_tensor) + self.degradation.degrade(x_0_hat, t_tensor - 1)
             x_t = x_tm1 
 
