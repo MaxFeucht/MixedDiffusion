@@ -2,11 +2,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torchgeometry as tgm
-from sklearn.mixture import GaussianMixture
-
 import math
 from tqdm import tqdm
 
+from sklearn.mixture import GaussianMixture
 import warnings
 
 ### Forward Process ###
@@ -62,21 +61,16 @@ class Scheduler:
             raise ValueError('Invalid schedule type')
 
     
-    def get_blur_schedule(self, timesteps, std, type = 'constant'):
+    def get_blur_schedule(self, timesteps):
         
         # 0.01 * t + 0.35 CIFAR-10
         
         # MNIST:
         # Rissanen: Max of 20, min of 0.5, interpolated --> Investigate more clearly in the future and also use Hoogeboom for further explanation (blurring schedule slightly better explained there)
         # Bansal: Constant 7, recursive application
+        
+        return torch.linspace(0, timesteps-1, timesteps)
 
-        # The standard deviation of the kernel starts at 1 and increases exponentially at the rate of 0.01.        
-        if type == 'constant':
-            return torch.ones(timesteps, dtype=torch.float32) * std
-
-        if type == 'exponential':
-            return torch.exp(std * torch.arange(timesteps, dtype=torch.float32))
-       
         
         
 class Degradation:
@@ -90,20 +84,20 @@ class Degradation:
         assert degradation in ['noise', 'blur', 'fadeblack', 'fadeblack_blur'], 'Invalid degradation type, choose from noise, blur, fadeblack, fadeblack_blur'
         self.degradation = degradation
         
-        assert dataset in ['mnist', 'cifar10', 'celeba', 'lsun_churches'],f"Invalid dataset, choose from ['mnist', 'cifar10', 'celeba', 'lsun_churches']"
+        assert dataset in ['mnist', 'cifar', 'celeba'], 'Invalid dataset'
         
-        # Default settings
-        blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
-                        'kernel_size': 5, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
-                        'kernel_std': 0.001 if dataset != 'mnist' else 2, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
+        # Default MNIST settings
+        blur_kwargs = {'channels': 1, 
+                        'kernel_size': 11, 
+                        'kernel_std': 2, 
                         'timesteps': timesteps, 
-                        'blur_routine': 'constant' if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
+                        'blur_routine': 'Constant'}
             
         self.blur = Blurring(**blur_kwargs)
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
 
 
-    def noising(self, x_0, t, noise = None):
+    def noising(self, x_0, t):
         """
         Function to add noise to an image x at time t.
         
@@ -112,13 +106,9 @@ class Degradation:
         :return torch.Tensor: The degraded image at time t
         """
 
-        if noise is None:
-            noise = torch.randn_like(x_0, device = self.device)
-            warnings.warn('Noise not provided, using random noise')
-
         x_0_coef, residual_coef = self.noise_coefs.forward_process(t)
         x_0_coef, residual_coef = x_0_coef.to(self.device), residual_coef.to(self.device)
-        x_t = x_0_coef * x_0 + residual_coef * noise
+        x_t = x_0_coef * x_0 + residual_coef * torch.randn_like(x_0, device = self.device)
         return x_t
 
 
@@ -168,7 +158,6 @@ class Degradation:
             assert max_blurs[t[step], step].shape == x_0.shape[1:], f"Shape mismatch: {max_blurs[t[step], step].shape} and {x_0.shape} at time step {i}"
 
         return torch.stack(blur_t)
-    
 
 
     def blacking(self, x_0, t):
@@ -179,12 +168,12 @@ class Degradation:
         :param int t: The time step
         :return torch.Tensor: The degraded image at time t
         """
-        multiplier = (1 - (t+1) / self.timesteps).reshape(-1, 1, 1, 1)  # +1 bc of zero indexing
-        x_t = multiplier * x_0 
+        
+        x_t = x_0 * (1 - (t+1) / self.timesteps) # +1 bc of zero indexing
         return x_t
     
     
-    def degrade(self, x, t, noise = None):
+    def degrade(self, x, t):
         """
         Function to degrade an image x at time t.
         
@@ -197,7 +186,7 @@ class Degradation:
             The degraded image at time t
         """
         if self.degradation == 'noise':
-            return self.noising(x, t, noise)
+            return self.noising(x, t)
         elif self.degradation == 'blur':
             return self.blurring(x, t)
         elif self.degradation == 'fadeblack':
@@ -219,11 +208,10 @@ class Blurring:
                 num_timesteps (int): Number of diffusion timesteps. Default is 40.
                 blur_routine (str): Routine used for blurring. Default is 'Constant'.
             """
-            scheduler = Scheduler()
-
+            
             self.channels = channels
             self.kernel_size = kernel_size
-            self.kernel_stds = scheduler.get_blur_schedule(timesteps = timesteps, std = kernel_std, type = blur_routine) 
+            self.kernel_std = kernel_std
             self.num_timesteps = timesteps
             self.blur_routine = blur_routine
         
@@ -264,9 +252,18 @@ class Blurring:
         
         kernels = []
         for i in range(self.num_timesteps):
-            kernels.append(self.get_conv((self.kernel_size, self.kernel_size), (self.kernel_stds[i], self.kernel_stds[i]))) 
+            if self.blur_routine == 'Incremental':
+                kernels.append(self.get_conv((self.kernel_size, self.kernel_size), (self.kernel_std*(i+1), self.kernel_std*(i+1)) ) )
+            elif self.blur_routine == 'Constant': # For MNIST
+                kernels.append(self.get_conv((self.kernel_size, self.kernel_size), (self.kernel_std, self.kernel_std)))
+            elif self.blur_routine == 'Exponential':
+                ks = self.kernel_size
+                kstd = torch.exp(self.kernel_std * i)
+                kernels.append(self.get_conv((ks, ks), (kstd, kstd)))
+        
         return kernels
     
+
 
 
 class DenoisingCoefs:
@@ -294,9 +291,9 @@ class DenoisingCoefs:
         :return: tuple
             The coefficients for the Denoising Diffusion process
         """
-        alpha_t = self.alphas_cumprod.gather(-1, t).reshape(-1, 1, 1, 1)
-        x0_coef = torch.sqrt(alpha_t)
-        residual_coef =  torch.sqrt(1. - alpha_t)
+        
+        x0_coef = torch.sqrt(self.alphas_cumprod.gather(-1, t)).reshape(-1, 1, 1, 1)
+        residual_coef =  torch.sqrt(1. - self.alphas_cumprod.gather(-1, t)).reshape(-1, 1, 1, 1)
         return x0_coef, residual_coef
     
     
@@ -333,10 +330,12 @@ class DenoisingCoefs:
 
 class Reconstruction:
     
+    
     def __init__(self, prediction, degradation, **kwargs):
         self.prediction = prediction
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.coefs = DenoisingCoefs(**kwargs)
+
 
     def reform_pred(self, model_output, x_t, t, return_x0 = False):
         """
@@ -372,6 +371,40 @@ class Reconstruction:
         
         else:
             raise ValueError('Invalid prediction type')
+
+
+    def model_prediction(self, model, x_t, t, return_x0 = False):
+        """
+        Function to obtain predictions for a given degraded image x_t at time t, using a trained model and a degrader function.
+        
+        :param torch.Tensor x_t: The degraded image at time t
+        :param int t: The time step
+        :return torch.Tensor: The predicted image at time t-1
+        """
+        
+        if not self.deterministic: 
+            xt_coef, residual_coef = self.coefs.x0_restore(t)
+        else:
+            xt_coef, residual_coef = torch.tensor(1.), torch.tensor(1.)
+                
+        if self.prediction == 'residual':
+            residual = model(x_t, t)
+            if not return_x0:
+                return residual
+            else:
+                x0_estimate = xt_coef * x_t - residual_coef * residual 
+                return x0_estimate      
+            
+        elif self.prediction == 'x0':
+            x0_estimate = model(x_t, t)
+            if return_x0:
+                return x0_estimate
+            else:
+                residual = (xt_coef * x_t - x0_estimate) / residual_coef
+                return residual      
+        
+        else:
+            raise ValueError('Invalid prediction type')
         
 
 class Loss:
@@ -380,7 +413,7 @@ class Loss:
         self.degradation = Degradation(**kwargs)
     
     def mse_loss(self, target, pred):    
-        return F.mse_loss(pred, target, reduction='mean')
+        return F.mse_loss(pred, target)
     
     def cold_loss(self, target, pred, t):
         diff = pred - target
@@ -390,8 +423,6 @@ class Loss:
         diff = pred - target # difference between the predicted and the target image / residual
         degraded_diff = self.degradation.degrade(diff, t)**2 # Move this difference into the degradation space and square it
         return degraded_diff.mean()  # Squared error loss, averaged over batch dimension
-
-
 
 class Trainer:
     
@@ -415,7 +446,7 @@ class Trainer:
         self.reconstruction = Reconstruction(**general_kwargs)
         self.loss = Loss(**general_kwargs)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, betas=(0.9, 0.99))
-        self.apply_ema = not kwargs['skip_ema']
+        self.apply_ema = False
 
         # Define Model EMA
         if self.apply_ema:
@@ -457,9 +488,9 @@ class Trainer:
         pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
 
         if self.deterministic: 
-            loss = self.loss.mse_loss(target, pred)
-            #assert torch.all(model_pred == pred), 'Model prediction and reformulation are not the same'
+            #loss = self.loss.mse_loss(target, pred)
             #loss = self.loss.cold_loss(target, pred, t)
+            loss = self.loss.mse_loss(target, pred)
             #loss = self.loss.darras_loss(target, pred, t)
         else:
             loss = self.loss.mse_loss(target, pred)
@@ -493,6 +524,80 @@ class Trainer:
         return epoch_loss/len(trainloader), val_loss/len(valloader)
 
 
+# class Trainer:
+    
+#     def __init__(self, model, lr, timesteps, prediction, degradation, noise_schedule, **kwargs):
+
+#         self.device = kwargs['device']
+#         self.model = model.to(self.device)
+#         self.prediction = prediction
+#         self.timesteps = timesteps
+#         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
+
+#         general_kwargs = {'timesteps': timesteps, 
+#                           'prediction': prediction,
+#                           'degradation': degradation, 
+#                           'noise_schedule': noise_schedule, 
+#                           'device': self.device,
+#                           'dataset': kwargs['dataset']}
+        
+#         self.schedule = Scheduler()
+#         self.degrader = Degradation(**general_kwargs)
+#         self.reconstruction = Reconstruction(**general_kwargs)
+#         self.loss = Loss(**general_kwargs)
+#         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+
+#     def train_iter(self, x_0):
+        
+#         t = torch.randint(0, self.timesteps, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
+#         x_t = self.degrader.degrade(x_0, t)
+
+#         model_pred = self.model(x_t, t)
+#         pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
+            
+#         if self.deterministic: # Residual either random noise for denoising diffusion or difference between x_0 and x_t for deterministic degradation
+#             residual = x_0 - x_t
+#         else:
+#             residual = torch.randn_like(x_0)
+        
+#         if self.prediction == 'residual':
+#             target = residual
+#         elif self.prediction == 'x0':
+#             target = x_0
+#         else:
+#             raise ValueError('Invalid prediction type')
+        
+#         if self.deterministic: 
+#             #loss = self.loss.cold_loss(target, pred, t)
+#             #loss = self.loss.darras_loss(target, pred, t)
+#             loss = self.loss.mse_loss(target, pred)
+#         else:
+#             loss = self.loss.mse_loss(target, pred)
+
+#         loss.backward()
+#         self.optimizer.step()
+#         self.optimizer.zero_grad()
+    
+#         return loss.item()
+    
+    
+#     def train_epoch(self, trainloader, valloader, val = False):
+        
+#         epoch_loss = 0  
+#         for x_0, _ in tqdm(trainloader, total=len(trainloader)):
+#             x_0 = x_0.to(self.device)
+#             epoch_loss += self.train_iter(x_0)
+        
+#         val_loss = 0
+#         if val:
+#             print("Validation")
+#             for x_0, _ in tqdm(valloader, total=len(valloader)):
+#                 x_0 = x_0.to(self.device)
+#                 val_loss += self.train_iter(x_0)
+            
+#         return epoch_loss/len(trainloader), val_loss/len(valloader)
+     
+
     
 class Sampler:
     
@@ -504,11 +609,9 @@ class Sampler:
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.fixed_seed = fixed_seed
-        self.gmm = None
 
         if fixed_seed:
             torch.manual_seed(torch.randint(100000, (1,)).item())
-        
 
     def fit_gmm(self, dataloader, clusters = 1):
         """
@@ -539,35 +642,30 @@ class Sampler:
         self.gmm.fit(all_samples)
         print("GMM fitted")
 
-
     @torch.no_grad() 
-    def sample_ddpm(self, model, batch_size, return_trajectory):
-
-        model.eval()
-
-        dims = (batch_size, model.channels, model.image_size, model.image_size)
-        x_t = torch.randn(dims).to(self.device)
+    def sample_ddpm(self, model, batch_size, return_trajectory = False):
         
+        x_t = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
         samples = []
+        
         for t in tqdm(reversed(range(self.timesteps)), desc="DDPM Sampling"):
             samples.append(x_t) 
             t = torch.full((batch_size,), t).to(self.device)
-            z = torch.randn(dims).to(self.device)
+            z = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
             posterior_mean_x0, posterior_mean_xt, posterior_var = self.reconstruction.coefs.posterior(t) # Get coefficients for the posterior distribution q(x_{t-1} | x_t, x_0)
-            model_pred = model(x_t, t)
-            x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
-            x_0_hat.clamp_(-1, 1) # Clip the estimate to the range [-1, 1]
-            x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x_0_hat + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
+            x0_estimate = self.reconstruction.model_prediction(model, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
+            x0_estimate.clamp_(-1, 1) # Clip the estimate to the range [-1, 1]
+            x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x0_estimate + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
+
             x_t = x_t_m1
-        
-        return x_t.unsqueeze(0) if not return_trajectory else samples
+            
+        return x_t if not return_trajectory else samples
     
 
     @torch.no_grad() 
-    def sample_ddim(self, model, batch_size, return_trajectory):
+    def sample_ddim(self, model, batch_size, return_trajectory = False):
         ## To be implemented
         pass
-
 
     @torch.no_grad()
     def sample_cold(self, model, batch_size, break_symmetry, return_trajectory = True):
@@ -595,22 +693,48 @@ class Sampler:
         for t in tqdm(reversed(range(1, self.timesteps)), desc=f"Cold Sampling {symm_string}"):
             samples.append(x_t) 
             t_tensor = torch.tensor([t], dtype=torch.long).repeat(x_t.shape[0]).to(self.device)
+
             model_pred = model(x_t, t_tensor)
             x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t_tensor, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
+            
             x_tm1 = x_t - self.degradation.degrade(x_0_hat, t_tensor) + self.degradation.degrade(x_0_hat, t_tensor - 1)
             x_t = x_tm1 
 
-        return x_t.unsqueeze(0) if not return_trajectory else samples
+        return x_t if not return_trajectory else x_t
+        #return x_t.unsqueeze(0) if not return_trajectory else samples
+
+    # @torch.no_grad()
+    # def sample_cold(self, model, batch_size, return_trajectory = False):
+
+    #     # Initialize an empty tensor to store the batch
+    #     x_t = torch.empty(batch_size, model.channels, model.image_size, model.image_size, device=self.device)
+
+    #     # Fill each depth slice with a single decimal drawn uniformly from [0, 1]
+    #     for i in range(batch_size):
+    #         for j in range(model.channels):
+    #             x_t[i, j, :, :] = torch.full((model.image_size, model.image_size), torch.rand(1).item(), dtype=torch.float32)
+
+    #     samples = []
+    #     for t in tqdm(reversed(range(self.timesteps)), desc="Cold Sampling"):
+    #         samples.append(x_t) 
+    #         t_tensor = torch.tensor([t]).repeat(x_t.shape[0]).float().to(self.device)
+    #         x_0_hat = model(x_t, t_tensor)
+    #         x_tm1 = x_t -  self.degradation.degrade(x_0_hat, t) + self.degradation.degrade(x_0_hat, t-1)
+    #         x_t = x_tm1 
+
+    #     return x_t if not return_trajectory else x_t
 
 
-    def sample(self, model, batch_size, return_trajectory = True, break_symmetry = False):
+    def sample(self, model, batch_size, return_trajectory = False):
         if self.deterministic:
-            return self.sample_cold(model, batch_size, break_symmetry, return_trajectory)
+            return self.sample_cold(model, batch_size, return_trajectory)
         else:
             return self.sample_ddpm(model, batch_size, return_trajectory)
         
 
                 
+            
+
 class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
     """Maintains moving averages of model parameters using an exponential decay.
     ``ema_avg = decay * avg_model_param + (1 - decay) * model_param``
@@ -623,7 +747,6 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
             return decay * avg_model_param + (1 - decay) * model_param
 
         super().__init__(model, device, ema_avg, use_buffers=True)
-
 
 
 
