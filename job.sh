@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=blur_residual_test
-#SBATCH --time=01:00:00
+#SBATCH --time=10:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq

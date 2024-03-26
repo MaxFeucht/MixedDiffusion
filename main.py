@@ -7,9 +7,11 @@ import math
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import warnings
+#  import wandb
 
 import torch
 import torch.nn as nn
+import torchvision
 from torchvision import datasets
 from torchvision import transforms as T
 from torchvision.utils import save_image
@@ -18,7 +20,7 @@ from unet import UNet
 from mnist_unet import MNISTUnet
 from scripts.karras_unet import KarrasUnet
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
-from utils import create_dirs, save_video, save_gif
+from utils import create_dirs, save_video, save_gif, MyCelebA
 
 # Check if ipykernel is running to check if we're working locally or on the cluster
 import sys
@@ -56,26 +58,58 @@ def load_data(batch_size = 32, dataset = 'mnist'):
                                     transform=T.Compose([T.ToTensor()]))
     
     elif dataset == 'celeba':
+        # 1. Download this file into dataset_directory and unzip it:
+        #  https://drive.google.com/open?id=0B7EVK8r0v71pZjFTYXZWM3FlRnM
+        # 2. Put the `img_align_celeba` directory into the `celeba` directory!
+        # 3. Dataset directory structure should look like this (required by ImageFolder from torchvision):
+        #  +- `dataset_directory`
+        #     +- celeba
+        #        +- img_align_celeba
+        #           +- 000001.jpg
+        #           +- 000002.jpg
+        #           +- 000003.jpg
+        #           +- ...
 
-        training_data = datasets.CelebA(root='./data/CELEBA', 
-                                    split='train', 
-                                    download=False, 
-                                    transform=T.Compose([T.ToTensor()]))
-        val_data = datasets.CelebA(root='./data/CELEBA', 
-                                    split='test', 
-                                    download=False, 
-                                    transform=T.Compose([T.ToTensor()]))
+        
+        train_transformation = T.Compose([
+            T.Resize((64, 64)),
+            T.ToTensor()])
+        
+        scriptdir = os.path.dirname(__file__)
+        datadir = os.path.join(scriptdir,'data')
+
+        # Adapt path to data directory for DAS-6
+        if 'scratch' in datadir:
+            datadir = datadir.replace('MixedDiffusion/', '')
+
+        print("Data Directory: ", datadir)
+
+        training_data = MyCelebA(
+            datadir,
+            split='train',
+            transform=train_transformation,
+            download=False,
+        )
+        
+        # Replace CelebA with your dataset
+        val_data = MyCelebA(
+            datadir,
+            split='test',
+            transform=train_transformation,
+            download=False,
+        )
     
-    elif dataset == 'lsun_churches':
 
-        training_data = datasets.LSUN(root='./data/LSUN_CHURCHES/', 
+    elif dataset == 'lsun_churches':
+        scriptdir = os.path.dirname(__file__)
+        datadir = os.path.join(scriptdir,'data/LSUN_CHURCHES')
+        training_data = datasets.LSUN(root=datadir,
                                     classes=['church_outdoor_train'], 
                                     transform=T.Compose([T.ToTensor()]))
-        val_data = datasets.LSUN(root='./data/LSUN_CHURCHES/', 
+        val_data = datasets.LSUN(root=datadir,
                                     classes=['church_outdoor_val'], 
                                     transform=T.Compose([T.ToTensor()]))
     
-
 
     # Set up data loaders
     train_loader = torch.utils.data.DataLoader(training_data, batch_size=batch_size, shuffle=True)
@@ -214,6 +248,8 @@ def main(**kwargs):
                 }
                 torch.save(chkpt, os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['timesteps']}_{kwargs['prediction']}{ema_flag}.pt"))
 
+        # # Log to wandb
+        # wandb.log({"train loss": trainloss}, step=e)
 
 
 
@@ -263,7 +299,17 @@ if __name__ == "__main__":
     print("Device: ", args.device)
     print("Arguments: ", args)
 
-    main(**vars(args))
+    # # Initialize wandb
+    # wandb.init(
+    # project="Diffusion Thesis",
+    # config={args})
+
+    # # Run main function
+    # main(**vars(args))
+
+    # # Finish wandb run
+    # wandb.finish()
+
     
 
 

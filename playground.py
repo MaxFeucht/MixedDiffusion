@@ -297,7 +297,7 @@ def load_data(batch_size = 32, dataset = 'mnist'):
 dataset = 'cifar10'
 
 default_args = {
-    'timesteps': 50,
+    'timesteps': 100,
     'lr': 1e-4,
     'epochs': 500,
     'batch_size': 32,
@@ -314,7 +314,8 @@ default_args = {
     'model_ema_decay': 0.9999,
     'kernel_size': 5,
     'kernel_std': 0.001 if dataset != 'mnist' else 3,
-    'blur_routine': 'Constant' if dataset == 'mnist' else 'Exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}}
+    'blur_routine': 'Constant' if dataset == 'mnist' else 'Exponential',
+    'test_run': False} # 'constant' if dataset == 'mnist' else 'exponential'}}
 
 trainloader, valloader = load_data(default_args['batch_size'], dataset=default_args['dataset'])
 
@@ -367,9 +368,25 @@ plt.imshow(bansal_img.permute(1,2,0).numpy())
 plt.title(f"Bansal with t = {t[idx]}")
 plt.show()
 
+
+plt.figure(figsize=(10, 5))
+plt.subplot(1,2,1)
+my_img = mine_xt[idx].squeeze().detach().cpu()
+my_img = my_img.unsqueeze(0) if len(my_img.shape) == 2 else my_img
+plt.imshow(my_img.permute(1,2,0).numpy())
+plt.title(f"Mine with t = {t[idx]}")
+plt.subplot(1,2,2)
+plt.imshow(x0[idx].permute(1,2,0).numpy())
+plt.title(f"Bansal with t = {t[idx]}")
+plt.show()
+
+
 ## CHECK!! Not a 100% exact match, but pretty close for both incremental and exponential - Good News
 
 # %%
 
+## Problem: t = 0 is still degraded, shift index by 1
+
+# degrader.degrade(x0, 0) should be equal to x0
 
 #bansal_loss = bansal_diffusion.model(data)

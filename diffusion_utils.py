@@ -566,7 +566,7 @@ class Sampler:
                     
             # Noise injection for breaking symmetry
             # Original code: noise_levels = [0.001, 0.002, 0.003, 0.004] # THIS GIVES US A HINT THAT THE NOISE LEVELS HAVE TO BE FINELY TUNED
-            noise_level = 0.002
+            noise_level = 0.003
             if self.break_symmetry:
                 x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
         

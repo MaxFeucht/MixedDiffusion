@@ -4,6 +4,7 @@ import torch
 from PIL import Image
 import numpy as np
 from torchvision.utils import make_grid, save_image
+from torchvision.datasets import CelebA
 
 def create_dirs(**kwargs):
 
@@ -67,3 +68,15 @@ def save_gif(samples, save_dir, nrow, name="process.gif"):
     imgs[0].save(os.path.join(save_dir,name), save_all=True,
                  append_images=imgs[1:], duration=0.5, loop=0)
     
+
+
+class MyCelebA(CelebA):
+    """
+    A work-around to address issues with pytorch's celebA dataset class.
+    
+    Download and Extract
+    URL : https://drive.google.com/file/d/1m8-EBPgi5MRubrm6iQjafK2QMHDBMSfJ/view?usp=sharing
+    """
+
+    def _check_integrity(self) -> bool:
+        return True
