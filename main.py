@@ -233,7 +233,7 @@ if __name__ == "__main__":
     parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=60, help='Number of samples to generate')
-    parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
+    parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
     parser.add_argument('--fix_sample', action='store_false', help='Whether to fix x_T for sampling, to see sample progression')
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
