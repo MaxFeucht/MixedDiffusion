@@ -179,7 +179,7 @@ def main(**kwargs):
             trainer.optimizer.load_state_dict(chkpt['optimizer_state_dict'])
             trainer.model_ema.load_state_dict(chkpt['ema_state_dict'])
             epoch_offset = chkpt['epoch']
-            print("Checkpoint loaded, continuing training from epoch", epoch_offset + 1)
+            print("Checkpoint loaded, continuing training from epoch", epoch_offset)
         except Exception as e:
             print("No checkpoint found: ", e)
             epoch_offset = 0
@@ -188,9 +188,9 @@ def main(**kwargs):
 
 
     # Training Loop
-    for e in range(epoch_offset, kwargs['epochs']):
+    for e in range(epoch_offset + 1, kwargs['epochs']):
         
-        sample_flag = True if (e+1) % kwargs['sample_interval'] == 0 else False        
+        sample_flag = True if (e) % kwargs['sample_interval'] == 0 else False        
         trainloss, valloss = trainer.train_epoch(trainloader, valloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
         
         print(f"Epoch {e} Train Loss: {trainloss}")
@@ -200,9 +200,9 @@ def main(**kwargs):
             # Save sampled images
             nrow = 6
             samples = sampler.sample(unet, kwargs['n_samples'])
-            save_image(samples[-1], os.path.join(imgpath, f'epoch_{e+1}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
-            save_video(samples, imgpath, nrow, f'epoch_{e+1}.mp4')
-            save_gif(samples, imgpath, nrow, f'epoch_{e+1}.gif')
+            save_image(samples[-1], os.path.join(imgpath, f'epoch_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
+            save_video(samples, imgpath, nrow, f'epoch_{e}.mp4')
+            save_gif(samples, imgpath, nrow, f'epoch_{e}.gif')
 
             # Save checkpoint
             if not kwargs['test_run']:
