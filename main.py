@@ -190,7 +190,7 @@ def main(**kwargs):
     # Training Loop
     for e in range(epoch_offset, kwargs['epochs']):
         
-        sample_flag = True if (e+1) % kwargs['sample_interval'] == 0 else False
+        sample_flag = True if (e+1) % kwargs['sample_interval'] == 0 else False        
         trainloss, valloss = trainer.train_epoch(trainloader, valloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
         
         print(f"Epoch {e} Train Loss: {trainloss}")
@@ -205,13 +205,14 @@ def main(**kwargs):
             save_gif(samples, imgpath, nrow, f'epoch_{e+1}.gif')
 
             # Save checkpoint
-            chkpt = {
-                'epoch': e,
-                'model_state_dict': trainer.model.state_dict(),
-                'optimizer_state_dict': trainer.optimizer.state_dict(),
-                'ema_state_dict': trainer.model_ema.state_dict(),
-            }
-            torch.save(chkpt, os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['timesteps']}_{kwargs['prediction']}{ema_flag}.pt"))
+            if not kwargs['test_run']:
+                chkpt = {
+                    'epoch': e,
+                    'model_state_dict': trainer.model.state_dict(),
+                    'optimizer_state_dict': trainer.optimizer.state_dict(),
+                    'ema_state_dict': trainer.model_ema.state_dict(),
+                }
+                torch.save(chkpt, os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['timesteps']}_{kwargs['prediction']}{ema_flag}.pt"))
 
 
 
@@ -232,7 +233,7 @@ if __name__ == "__main__":
     parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=60, help='Number of samples to generate')
-    parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
+    parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
     parser.add_argument('--fix_sample', action='store_false', help='Whether to fix x_T for sampling, to see sample progression')
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')

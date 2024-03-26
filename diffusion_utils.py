@@ -631,15 +631,15 @@ class Sampler:
         symm_string = 'with broken symmetry' if self.break_symmetry else ''
 
         samples = []
+        samples.append(x_t) 
         for t in tqdm(reversed(range(1, self.timesteps)), desc=f"Cold Sampling {symm_string}"):
-            samples.append(x_t) 
             t_tensor = torch.tensor([t], dtype=torch.long).repeat(x_t.shape[0]).to(self.device)
             model_pred = model(x_t, t_tensor)
             x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t_tensor, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_tm1 = x_t - self.degradation.degrade(x_0_hat, t_tensor) + self.degradation.degrade(x_0_hat, t_tensor - 1)
             x_t = x_tm1 
-
-        samples.append(x_t)
+            samples.append(x_t)
+        
         return x_t.unsqueeze(0) if not return_trajectory else samples
 
 
