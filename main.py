@@ -304,8 +304,8 @@ if __name__ == "__main__":
     # project="Diffusion Thesis",
     # config={args})
 
-    # # Run main function
-    # main(**vars(args))
+    # Run main function
+    main(**vars(args))
 
     # # Finish wandb run
     # wandb.finish()
