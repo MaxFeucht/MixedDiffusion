@@ -7,7 +7,7 @@ import math
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 import warnings
-#  import wandb
+import wandb
 
 import torch
 import torch.nn as nn
@@ -58,18 +58,6 @@ def load_data(batch_size = 32, dataset = 'mnist'):
                                     transform=T.Compose([T.ToTensor()]))
     
     elif dataset == 'celeba':
-        # 1. Download this file into dataset_directory and unzip it:
-        #  https://drive.google.com/open?id=0B7EVK8r0v71pZjFTYXZWM3FlRnM
-        # 2. Put the `img_align_celeba` directory into the `celeba` directory!
-        # 3. Dataset directory structure should look like this (required by ImageFolder from torchvision):
-        #  +- `dataset_directory`
-        #     +- celeba
-        #        +- img_align_celeba
-        #           +- 000001.jpg
-        #           +- 000002.jpg
-        #           +- 000003.jpg
-        #           +- ...
-
         
         train_transformation = T.Compose([
             T.Resize((64, 64)),
@@ -248,21 +236,21 @@ def main(**kwargs):
                 }
                 torch.save(chkpt, os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['timesteps']}_{kwargs['prediction']}{ema_flag}.pt"))
 
-        # # Log to wandb
-        # wandb.log({"train loss": trainloss}, step=e)
+        # Log to wandb
+        wandb.log({"train loss": trainloss}, step=e)
 
 
 
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=100, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=1000, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=1000, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
-    parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
-    parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
+    parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method')
+    parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
@@ -299,16 +287,16 @@ if __name__ == "__main__":
     print("Device: ", args.device)
     print("Arguments: ", args)
 
-    # # Initialize wandb
-    # wandb.init(
-    # project="Diffusion Thesis",
-    # config={args})
+    # Initialize wandb
+    wandb.init(
+    project="Diffusion Thesis",
+    config=vars(args))
 
     # Run main function
     main(**vars(args))
 
-    # # Finish wandb run
-    # wandb.finish()
+    # Finish wandb run
+    wandb.finish()
 
     
 

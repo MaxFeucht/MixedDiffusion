@@ -95,9 +95,9 @@ class Degradation:
         # Default settings
         blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
                         'kernel_size': 5, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
-                        'kernel_std': 0.001 if dataset != 'mnist' else 2, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
+                        'kernel_std': 2, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
                         'timesteps': timesteps, 
-                        'blur_routine': 'constant' if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
+                        'blur_routine': 'constant'} # if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
             
         self.blur = Blurring(**blur_kwargs)
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
@@ -360,7 +360,6 @@ class Reconstruction:
             else:
                 x0_estimate = xt_coef * x_t - residual_coef * residual 
                 return x0_estimate      
-        
 
         elif self.prediction == 'x0':
             x0_estimate = model_output
