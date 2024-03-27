@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=blur_residual_test
+#SBATCH --job-name=blur_cifar
 #SBATCH --time=1:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
