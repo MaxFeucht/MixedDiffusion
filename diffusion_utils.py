@@ -415,7 +415,7 @@ class Trainer:
         self.loss = Loss(**general_kwargs)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, betas=(0.9, 0.99))
         self.apply_ema = not kwargs['skip_ema']
-        self.test_run = kwargs['test_run']
+        self.test_run = True if kwargs['test_run'] else False
 
         # Define Model EMA
         if self.apply_ema:
@@ -431,10 +431,10 @@ class Trainer:
 
     def train_iter(self, x_0):
 
-        self.model.train()
-
+        # Sample t
         t = torch.randint(0, self.timesteps, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
 
+        # Degrade and obtain residual
         if self.deterministic:
             x_t = self.degrader.degrade(x_0, t)
             residual = x_0 - x_t
@@ -443,6 +443,7 @@ class Trainer:
             x_t = self.degrader.degrade(x_0, t, noise=noise)
             residual = noise
 
+        # Define prediction and target
         if self.prediction == 'residual':
             target = residual
             ret_x0 = False
@@ -456,6 +457,7 @@ class Trainer:
         model_pred = self.model(x_t, t)
         pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
 
+        # Select approporiate loss
         if self.deterministic: 
             loss = self.loss.mse_loss(target, pred)
             #loss = self.loss.cold_loss(target, pred, t)
@@ -472,6 +474,10 @@ class Trainer:
     
     def train_epoch(self, trainloader, valloader, val = False):
         
+        # Set model to train mode
+        self.model.train()
+
+        # Iterate through trainloader
         epoch_loss = 0  
         for i, data in tqdm(enumerate(trainloader), total=len(trainloader)):
             x_0, _ = data
@@ -481,16 +487,17 @@ class Trainer:
             if self.apply_ema and i % self.ema_steps==0:
                 self.model_ema.update_parameters(self.model)
 
+            # Break prematurely if args.test_run
             if self.test_run:
                 break
 
+        # Run validation / sampling
         val_loss = 0
         if val:
             print("Validation")
             for x_0, _ in tqdm(valloader, total=len(valloader)):
                 x_0 = x_0.to(self.device)
                 val_loss += self.train_iter(x_0)
-        
             
         return epoch_loss/len(trainloader), val_loss/len(valloader)
 
@@ -621,6 +628,8 @@ class Sampler:
     @torch.no_grad()
     def sample_cold(self, model, batch_size, return_trajectory = True):
         
+        model.eval()
+
         # Sample x_T either every time new or once and keep it fixed 
         if self.x_T is None:
             x_t = self.sample_x_T(batch_size, model.channels, model.image_size)

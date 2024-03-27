@@ -14,7 +14,8 @@ from torchvision.utils import save_image
 
 from unet import UNet
 from scripts.karras_unet import KarrasUnet
-from scripts.deblurring_diffusion import GaussianDiffusion
+from scripts.complete_denoising import GaussianDiffusion
+#from scripts.deblurring_diffusion import GaussianDiffusion
 from diffusion_utils import Degradation, Scheduler, Reconstruction, Trainer, Sampler, Blurring, DenoisingCoefs
 from utils import create_dirs
 
@@ -208,37 +209,132 @@ def load_data(batch_size = 32, dataset = 'mnist'):
 # model.load_state_dict(ckpt["model"])
 
 
-# # %%
 
 
-# ## UNIT TESTS - DENOISING DIFFUSION
+# %%
 
+
+## UNIT TESTS - DENOISING DIFFUSION
+
+
+## Forward Diffusion
+def extract(a, t, x_shape):
+    b, *_ = t.shape
+    out = a.gather(-1, t)
+    return out.reshape(b, *((1,) * (len(x_shape) - 1)))
+
+default_args = {
+    'timesteps': 50,
+    'lr': 1e-4,
+    'epochs': 500,
+    'batch_size': 32,
+    'dim': 64,
+    'num_downsamples': 2,
+    'prediction': 'residual',
+    'degradation': 'noise',
+    'noise_schedule': 'cosine',
+    'dataset': 'mnist',
+    'verbose': False,
+    'device': 'cuda' if torch.cuda.is_available() else 'cpu',
+    'skip_ema': False,
+    'model_ema_steps': 10,
+    'model_ema_decay': 0.9999,
+    'test_run': False}
+
+trainloader, valloader = load_data(default_args['batch_size'])
+
+x, _ = next(iter(trainloader))   
+channels, imsize = x[0].shape[0], x[0].shape[-1]
+
+# Define Model
+unet = UNet(image_size=imsize, channels=channels, num_downsamples=default_args['num_downsamples'], dim=default_args['dim'], dim_max=default_args['dim']*2**default_args['num_downsamples'])
+
+model_chckpt = torch.load('./models/mnist_noise/chpkt_64_100_residual_ema.pt')
+unet.load_state_dict(model_chckpt['model_state_dict'])
+unet.eval()
+
+# Define Trainer and Sampler
+trainer = Trainer(model = unet, **default_args)
+
+lr_diffusion = GaussianDiffusion(model = unet,
+                image_size = imsize,
+                timesteps = default_args['timesteps'],
+                sampling_timesteps = None,
+                objective = 'pred_noise',
+                beta_schedule = 'cosine',
+                schedule_fn_kwargs = dict(),
+                ddim_sampling_eta = 0.,
+                auto_normalize = False,
+                offset_noise_strength = 0.,  # https://www.crosslabs.org/blog/diffusion-with-offset-noise
+                min_snr_loss_weight = False, # https://arxiv.org/abs/2303.09556
+                min_snr_gamma = 5)
+        
+
+
+x0, _ = next(iter(trainloader))   
+x = x.to(default_args['device'])
+noise = torch.randn(x.shape).to(default_args['device'])
+t = torch.randint(0, default_args['timesteps'], (x.shape[0],)).to(default_args['device'])
+
+mine_xt = trainer.degrader.degrade(x0, t, noise = noise)
+lr_xt = lr_diffusion.q_sample(x0, t, noise=noise)
+
+mine_xt[-1] == lr_xt[-1]
+
+## CHECK Prediction
+ret_x0 = False
+model_pred = trainer.model(x, t)
+mine_out = trainer.reconstruction.reform_pred(model_pred, x, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
+
+lr_out = lr_diffusion.model(x, t)
+
+mine_out == lr_out
+
+model_pred == lr_out
+
+
+
+plt.imshow(mine_xt[0].squeeze().detach().cpu().numpy())
+plt.imshow(lr_xt[0].squeeze().detach().cpu().numpy())
+
+
+trainer.degrader.noise_coefs.alphas_cumprod == lr_diffusion.alphas_cumprod
+
+
+# torch.sqrt(trainer.degrader.noise_coefs.alphas_cumprod) == lr_diffusion.sqrt_alphas_cumprod
+
+#%%
 
 # ## Forward Diffusion
-# def extract(a, t, x_shape):
-#     b, *_ = t.shape
-#     out = a.gather(-1, t)
-#     return out.reshape(b, *((1,) * (len(x_shape) - 1)))
+
+# # %%
+
+# #%%
+# # UNIT TESTS - BLURRING DIFFUSION
+# dataset = 'cifar10'
 
 # default_args = {
-#     'timesteps': 50,
+#     'timesteps': 100,
 #     'lr': 1e-4,
 #     'epochs': 500,
 #     'batch_size': 32,
 #     'dim': 128,
 #     'num_downsamples': 2,
 #     'prediction': 'x0',
-#     'degradation': 'noise',
+#     'degradation': 'blur',
 #     'noise_schedule': 'cosine',
-#     'dataset': 'mnist',
+#     'dataset': dataset,
 #     'verbose': False,
 #     'device': 'cuda' if torch.cuda.is_available() else 'cpu',
 #     'skip_ema': False,
 #     'model_ema_steps': 10,
 #     'model_ema_decay': 0.9999,
-# }
+#     'kernel_size': 5,
+#     'kernel_std': 0.001 if dataset != 'mnist' else 3,
+#     'blur_routine': 'Constant' if dataset == 'mnist' else 'Exponential',
+#     'test_run': False} # 'constant' if dataset == 'mnist' else 'exponential'}}
 
-# trainloader, valloader = load_data(default_args['batch_size'])
+# trainloader, valloader = load_data(default_args['batch_size'], dataset=default_args['dataset'])
 
 # x, _ = next(iter(trainloader))   
 # channels, imsize = x[0].shape[0], x[0].shape[-1]
@@ -249,141 +345,62 @@ def load_data(batch_size = 32, dataset = 'mnist'):
 # # Define Trainer and Sampler
 # trainer = Trainer(model = unet, **default_args)
 
-# lr_diffusion = GaussianDiffusion(model = unet,
-#                 image_size = imsize,
-#                 timesteps = default_args['timesteps'],
-#                 sampling_timesteps = None,
-#                 objective = 'pred_x0',
-#                 beta_schedule = 'cosine',
-#                 schedule_fn_kwargs = dict(),
-#                 ddim_sampling_eta = 0.,
-#                 auto_normalize = False,
-#                 offset_noise_strength = 0.,  # https://www.crosslabs.org/blog/diffusion-with-offset-noise
-#                 min_snr_loss_weight = False, # https://arxiv.org/abs/2303.09556
-#                 min_snr_gamma = 5)
-        
+# bansal_diffusion = GaussianDiffusion(denoise_fn = unet,
+#                                     image_size = imsize,
+#                                     device_of_kernel = default_args['device'],
+#                                     channels = channels,
+#                                     timesteps = default_args['timesteps'],
+#                                     kernel_std = default_args['kernel_std'],
+#                                     kernel_size = default_args['kernel_size'],
+#                                     blur_routine = default_args['blur_routine'],
+#                                     train_routine = 'Final',
+#                                     sampling_routine='default',
+#                                     discrete=False)
 
+
+
+
+# #%%
 
 # x0, _ = next(iter(trainloader))   
-# x = x.to(default_args['device'])
-# noise = torch.randn(x.shape).to(default_args['device'])
-# t = torch.randint(0, default_args['timesteps'], (x.shape[0],)).to(default_args['device'])
+# x0 = x0.to(default_args['device'])
+# t = torch.randint(0, default_args['timesteps'], (x0.shape[0],)).to(default_args['device'])
 
-# mine_xt = trainer.degrader.degrade(x0, t, noise = noise)
-# lr_xt = lr_diffusion.q_sample(x0, t, noise=noise)
+# mine_xt = trainer.degrader.degrade(x0, t)
+# bansal_xt = bansal_diffusion.q_sample(x0, t)
 
-# mine_xt == lr_xt
+# idx = torch.randint(0, default_args['batch_size'], (1,)).item()
+# mine_xt[idx] == bansal_xt[idx]
 
-# ## CHECK
+# plt.figure(figsize=(10, 5))
+# plt.subplot(1,2,1)
+# my_img = mine_xt[idx].squeeze().detach().cpu()
+# my_img = my_img.unsqueeze(0) if len(my_img.shape) == 2 else my_img
+# plt.imshow(my_img.permute(1,2,0).numpy())
+# plt.title(f"Mine with t = {t[idx]}")
+# plt.subplot(1,2,2)
+# bansal_img = bansal_xt[idx].squeeze().detach().cpu()
+# bansal_img = bansal_img.unsqueeze(0) if len(bansal_img.shape) == 2 else bansal_img
+# plt.imshow(bansal_img.permute(1,2,0).numpy())
+# plt.title(f"Bansal with t = {t[idx]}")
+# plt.show()
 
 
+# plt.figure(figsize=(10, 5))
+# plt.subplot(1,2,1)
+# my_img = mine_xt[idx].squeeze().detach().cpu()
+# my_img = my_img.unsqueeze(0) if len(my_img.shape) == 2 else my_img
+# plt.imshow(my_img.permute(1,2,0).numpy())
+# plt.title(f"Mine with t = {t[idx]}")
+# plt.subplot(1,2,2)
+# plt.imshow(x0[idx].permute(1,2,0).numpy())
+# plt.title(f"Bansal with t = {t[idx]}")
+# plt.show()
 
-# plt.imshow(mine_xt[0].squeeze().detach().cpu().numpy())
-# plt.imshow(lr_xt[0].squeeze().detach().cpu().numpy())
 
-
-# trainer.degrader.noise_coefs.alphas_cumprod == lr_diffusion.alphas_cumprod
-
-
-# torch.sqrt(trainer.degrader.noise_coefs.alphas_cumprod) == lr_diffusion.sqrt_alphas_cumprod
-
-
-# ## Forward Diffusion
+# ## CHECK!! Not a 100% exact match, but pretty close for both incremental and exponential - Good News
 
 # # %%
-
-#%%
-# UNIT TESTS - BLURRING DIFFUSION
-dataset = 'cifar10'
-
-default_args = {
-    'timesteps': 100,
-    'lr': 1e-4,
-    'epochs': 500,
-    'batch_size': 32,
-    'dim': 128,
-    'num_downsamples': 2,
-    'prediction': 'x0',
-    'degradation': 'blur',
-    'noise_schedule': 'cosine',
-    'dataset': dataset,
-    'verbose': False,
-    'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-    'skip_ema': False,
-    'model_ema_steps': 10,
-    'model_ema_decay': 0.9999,
-    'kernel_size': 5,
-    'kernel_std': 0.001 if dataset != 'mnist' else 3,
-    'blur_routine': 'Constant' if dataset == 'mnist' else 'Exponential',
-    'test_run': False} # 'constant' if dataset == 'mnist' else 'exponential'}}
-
-trainloader, valloader = load_data(default_args['batch_size'], dataset=default_args['dataset'])
-
-x, _ = next(iter(trainloader))   
-channels, imsize = x[0].shape[0], x[0].shape[-1]
-
-# Define Model
-unet = UNet(image_size=imsize, channels=channels, num_downsamples=default_args['num_downsamples'], dim=default_args['dim'], dim_max=default_args['dim']*2**default_args['num_downsamples'])
-
-# Define Trainer and Sampler
-trainer = Trainer(model = unet, **default_args)
-
-bansal_diffusion = GaussianDiffusion(denoise_fn = unet,
-                                    image_size = imsize,
-                                    device_of_kernel = default_args['device'],
-                                    channels = channels,
-                                    timesteps = default_args['timesteps'],
-                                    kernel_std = default_args['kernel_std'],
-                                    kernel_size = default_args['kernel_size'],
-                                    blur_routine = default_args['blur_routine'],
-                                    train_routine = 'Final',
-                                    sampling_routine='default',
-                                    discrete=False)
-
-
-
-
-#%%
-
-x0, _ = next(iter(trainloader))   
-x0 = x0.to(default_args['device'])
-t = torch.randint(0, default_args['timesteps'], (x0.shape[0],)).to(default_args['device'])
-
-mine_xt = trainer.degrader.degrade(x0, t)
-bansal_xt = bansal_diffusion.q_sample(x0, t)
-
-idx = torch.randint(0, default_args['batch_size'], (1,)).item()
-mine_xt[idx] == bansal_xt[idx]
-
-plt.figure(figsize=(10, 5))
-plt.subplot(1,2,1)
-my_img = mine_xt[idx].squeeze().detach().cpu()
-my_img = my_img.unsqueeze(0) if len(my_img.shape) == 2 else my_img
-plt.imshow(my_img.permute(1,2,0).numpy())
-plt.title(f"Mine with t = {t[idx]}")
-plt.subplot(1,2,2)
-bansal_img = bansal_xt[idx].squeeze().detach().cpu()
-bansal_img = bansal_img.unsqueeze(0) if len(bansal_img.shape) == 2 else bansal_img
-plt.imshow(bansal_img.permute(1,2,0).numpy())
-plt.title(f"Bansal with t = {t[idx]}")
-plt.show()
-
-
-plt.figure(figsize=(10, 5))
-plt.subplot(1,2,1)
-my_img = mine_xt[idx].squeeze().detach().cpu()
-my_img = my_img.unsqueeze(0) if len(my_img.shape) == 2 else my_img
-plt.imshow(my_img.permute(1,2,0).numpy())
-plt.title(f"Mine with t = {t[idx]}")
-plt.subplot(1,2,2)
-plt.imshow(x0[idx].permute(1,2,0).numpy())
-plt.title(f"Bansal with t = {t[idx]}")
-plt.show()
-
-
-## CHECK!! Not a 100% exact match, but pretty close for both incremental and exponential - Good News
-
-# %%
 
 ## Problem: t = 0 is still degraded, shift index by 1
 
