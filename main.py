@@ -16,8 +16,8 @@ from torchvision import datasets
 from torchvision import transforms as T
 from torchvision.utils import save_image
 
-from unet import UNet
-from mnist_unet import MNISTUnet
+#from unet import UNet
+#from mnist_unet import MNISTUnet
 from scripts.karras_unet import KarrasUnet
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
 from utils import create_dirs, save_video, save_gif, MyCelebA
@@ -165,12 +165,28 @@ def main(**kwargs):
     x, _ = next(iter(trainloader))   
     channels, imsize = x[0].shape[0], x[0].shape[-1]
     
-    # Define Model
-    unet = UNet(image_size=imsize, 
-                channels=channels, 
-                num_downsamples=kwargs['num_downsamples'], 
-                dim = kwargs['dim'], 
-                dim_max =  kwargs['dim']*2**kwargs['num_downsamples'])
+    # # Define Model
+    # unet = UNet(image_size=imsize, 
+    #             channels=channels, 
+    #             num_downsamples=kwargs['num_downsamples'], 
+    #             dim = kwargs['dim'], 
+    #             dim_max =  kwargs['dim']*2**kwargs['num_downsamples'],
+    #             dropout = 0)
+    
+    # unet = MNISTUnet(timesteps=kwargs['timesteps'],
+    #                  in_channels=channels,
+    #                  out_channels=channels,
+    #                  time_embedding_dim=64,
+    #                  dim_mults=[2,4],
+    #                  base_dim=kwargs['dim'])
+
+    unet = KarrasUnet(image_size=imsize, 
+                    channels=channels, 
+                    num_downsamples=kwargs['num_downsamples'], 
+                    dim = kwargs['dim'], 
+                    dim_max = kwargs['dim']*2**kwargs['num_downsamples'],
+                    dropout = 0)
+    
     
     # # Enable Multi-GPU training
     # if torch.cuda.device_count() > 1:
@@ -251,7 +267,7 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=500, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=1000, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=1000, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')

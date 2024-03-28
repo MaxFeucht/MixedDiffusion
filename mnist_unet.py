@@ -111,7 +111,7 @@ class DecoderBlock(nn.Module):
 
     def forward(self,x,x_shortcut,t=None):
         x=self.upsample(x)
-        print(x.shape, x_shortcut.shape)
+        #print(x.shape, x_shortcut.shape)
         x=torch.cat([x,x_shortcut],dim=1)
         x=self.conv0(x)
         if t is not None:
