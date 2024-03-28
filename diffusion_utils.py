@@ -76,6 +76,9 @@ class Scheduler:
 
         if type == 'exponential':
             return torch.exp(std * torch.arange(timesteps, dtype=torch.float32))
+        
+        if type == 'cifar':
+            return torch.arange(timesteps, dtype=torch.float32)/100 + 0.35
        
         
         
@@ -94,10 +97,10 @@ class Degradation:
         
         # Default settings
         blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
-                        'kernel_size': 5, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
-                        'kernel_std': 2, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
+                        'kernel_size': 11, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
+                        'kernel_std': 10, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
                         'timesteps': timesteps, 
-                        'blur_routine': 'constant'} # if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
+                        'blur_routine': 'cifar'} # if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
             
         self.blur = Blurring(**blur_kwargs)
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
@@ -429,10 +432,7 @@ class Trainer:
             warnings.warn('No EMA applied')
 
 
-    def train_iter(self, x_0):
-
-        # Sample t
-        t = torch.randint(0, self.timesteps, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
+    def train_iter(self, x_0, t):
 
         # Degrade and obtain residual
         if self.deterministic:
@@ -464,43 +464,45 @@ class Trainer:
             #loss = self.loss.darras_loss(target, pred, t)
         else:
             loss = self.loss.mse_loss(target, pred)
-
-        loss.backward()
-        self.optimizer.step()
-        self.optimizer.zero_grad()
     
-        return loss.item()
+        return loss
     
     
-    def train_epoch(self, trainloader, valloader, val = False):
+    def train_epoch(self, dataloader, val = False):
         
         # Set model to train mode
-        self.model.train()
+        if not val:
+            assert self.model.train(), 'Model not in training mode'
+        else:
+            assert self.model.eval(), 'Model not in evaluation mode'
 
         # Iterate through trainloader
         epoch_loss = 0  
-        for i, data in tqdm(enumerate(trainloader), total=len(trainloader)):
+        for i, data in tqdm(enumerate(dataloader), total=len(dataloader)):
             x_0, _ = data
             x_0 = x_0.to(self.device)
-            epoch_loss += self.train_iter(x_0)
+            
+            # Sample t
+            t = torch.randint(0, self.timesteps, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
 
-            if self.apply_ema and i % self.ema_steps==0:
-                self.model_ema.update_parameters(self.model)
+            loss = self.train_iter(x_0, t)
+
+            # Implement Gradient Accumulation
+            if not val:
+                loss.backward()
+                self.optimizer.step()
+                self.optimizer.zero_grad()
+
+                if self.apply_ema and i % self.ema_steps==0:
+                    self.model_ema.update_parameters(self.model)
+            
+            epoch_loss += loss.item()
 
             # Break prematurely if args.test_run
             if self.test_run:
                 break
 
-        # Run validation / sampling
-        val_loss = 0
-        if val:
-            print("Validation")
-            for x_0, _ in tqdm(valloader, total=len(valloader)):
-                x_0 = x_0.to(self.device)
-                val_loss += self.train_iter(x_0)
-            
-        return epoch_loss/len(trainloader), val_loss/len(valloader)
-
+        return epoch_loss/len(dataloader)
 
     
 class Sampler:
@@ -572,7 +574,7 @@ class Sampler:
                     
             # Noise injection for breaking symmetry
             # Original code: noise_levels = [0.001, 0.002, 0.003, 0.004] # THIS GIVES US A HINT THAT THE NOISE LEVELS HAVE TO BE FINELY TUNED
-            noise_level = 0.003
+            noise_level = 0.002
             if self.break_symmetry:
                 x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
         

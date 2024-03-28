@@ -43,9 +43,9 @@ cd /var/scratch/mft520/experiments
 
 ## Set Vars
 
-lr=5e-5
+lr=1e-4
 batch_size=128
-timesteps=100
+timesteps=120
 dim=128
 epochs=1000
 prediction="x0"

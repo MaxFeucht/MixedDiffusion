@@ -212,16 +212,23 @@ def main(**kwargs):
     # Training Loop
     for e in range(epoch_offset + 1, kwargs['epochs']):
         
-        sample_flag = True if (e) % kwargs['sample_interval'] == 0 else False        
-        trainloss, valloss = trainer.train_epoch(trainloader, valloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
-        
+        sample_flag = True if (e) % kwargs['sample_interval'] == 0 else False 
+
+        # Train
+        trainer.model.train()
+        trainloss = trainer.train_epoch(trainloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
         print(f"Epoch {e} Train Loss: {trainloss}")
+
         if sample_flag:
-            print(f"Epoch {e} Validation Loss: {valloss}")
+
+            # Validation
+            trainer.model.eval()
+            # valloss = trainer.train_epoch(valloader, val=True) # ATTENTION: CURRENTLY NO VALIDATION LOSS
+            # print(f"Epoch {e} Validation Loss: {valloss}")
         
-            # Save sampled images
+            # Sample
             nrow = 6
-            samples = sampler.sample(unet, kwargs['n_samples'])
+            samples = sampler.sample(trainer.model, kwargs['n_samples'])
             save_image(samples[-1], os.path.join(imgpath, f'epoch_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
             save_video(samples, imgpath, nrow, f'epoch_{e}.mp4')
             save_gif(samples, imgpath, nrow, f'epoch_{e}.gif')
@@ -244,7 +251,7 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=1000, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=500, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=1000, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
