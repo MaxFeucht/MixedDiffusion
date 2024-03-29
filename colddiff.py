@@ -59,20 +59,12 @@ for idx in range(len(trainset)):
     
 
 from comet_ml import Experiment
-from scripts.deblurring_diffusion_pytorch import GaussianDiffusion, Unet, Trainer, Model
+from scripts.deblurring_diffusion_pytorch import Unet, GaussianDiffusion, Trainer, Model
+import torchvision
 import os
 import errno
 import shutil
 import argparse
-
-# Check if ipykernel is running to check if we're working locally or on the cluster
-import sys
-if 'ipykernel' in sys.modules:
-    sys.argv = ['']
-
-import torch
-device = 'cuda' if torch.cuda.is_available() else 'mps'
-
 
 def create_folder(path):
     try:
@@ -88,7 +80,7 @@ def del_folder(path):
     except OSError as exc:
         pass
 
-create = 1
+create = 0
 
 if create:
     trainset = torchvision.datasets.CIFAR10(
@@ -143,7 +135,7 @@ model = Model(resolution=args.image_size,
               ch_mult=(1,2,2,2),
               num_res_blocks=2,
               attn_resolutions=(16,),
-              dropout=0.1).to(device)
+              dropout=0.1).cuda()
 
 diffusion = GaussianDiffusion(
     model,
@@ -158,10 +150,10 @@ diffusion = GaussianDiffusion(
     train_routine = args.train_routine,
     sampling_routine = args.sampling_routine,
     discrete=args.discrete
-).to(device)
+).cuda()
 
 import torch
-#diffusion = torch.nn.DataParallel(diffusion, device_ids=range(torch.cuda.device_count()))
+diffusion = torch.nn.DataParallel(diffusion, device_ids=range(torch.cuda.device_count()))
 
 
 trainer = Trainer(
