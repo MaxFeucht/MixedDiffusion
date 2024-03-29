@@ -927,40 +927,87 @@ class GaussianDiffusion(nn.Module):
 
         return xt, direct_recons, img
 
-    def q_sample(self, x_start, t):
-        # So at present we will for each batch blur it till the max in t.
-        # And save it. And then use t to pull what I need. It is nothing but series of convolutions anyway.
-        # Remember to do convs without torch.grad
-        max_iters = torch.max(t)
-        all_blurs = []
-        x = x_start
-        for i in range(max_iters+1):
-            with torch.no_grad():
-                x = self.gaussian_kernels[i](x)
-                if self.discrete:
-                    if i == (self.num_timesteps-1):
-                        x = torch.mean(x, [2, 3], keepdim=True)
-                        x = x.expand(x_start.shape[0], x_start.shape[1], x_start.shape[2], x_start.shape[3])
-                all_blurs.append(x)
+    # def q_sample(self, x_start, t):
+    #     # So at present we will for each batch blur it till the max in t.
+    #     # And save it. And then use t to pull what I need. It is nothing but series of convolutions anyway.
+    #     # Remember to do convs without torch.grad
+    #     max_iters = torch.max(t)
+    #     all_blurs = []
+    #     x = x_start
+    #     for i in range(max_iters+1):
+    #         with torch.no_grad():
+    #             x = self.gaussian_kernels[i](x)
+    #             if self.discrete:
+    #                 if i == (self.num_timesteps-1):
+    #                     x = torch.mean(x, [2, 3], keepdim=True)
+    #                     x = x.expand(x_start.shape[0], x_start.shape[1], x_start.shape[2], x_start.shape[3])
+    #             all_blurs.append(x)
 
-        all_blurs = torch.stack(all_blurs)
+    #     all_blurs = torch.stack(all_blurs)
 
-        choose_blur = []
-        # step is batch size as well so for the 49th step take the step(batch_size)
+    #     choose_blur = []
+    #     # step is batch size as well so for the 49th step take the step(batch_size)
+    #     for step in range(t.shape[0]):
+    #         if step != -1:
+    #             choose_blur.append(all_blurs[t[step], step])
+    #         else:
+    #             choose_blur.append(x_start[step])
+
+    #     choose_blur = torch.stack(choose_blur)
+    #     if self.discrete:
+    #         choose_blur = (choose_blur + 1) * 0.5
+    #         choose_blur = (choose_blur * 255)
+    #         choose_blur = choose_blur.int().float() / 255
+    #         choose_blur = choose_blur * 2 - 1
+    #     #choose_blur = all_blurs
+    #     return choose_blur
+    
+
+    
+    def q_sample(self, x_0, t):
+        """
+        Function to blur an image x at time t.
+        
+        :param torch.Tensor x_0: The original image
+        :param int t: The time step
+        :return torch.Tensor: The degraded image at time t
+        """
+        
+
+        # Freeze kernels
+        for kernel in self.gaussian_kernels:
+            kernel.requires_grad = False
+
+        x = x_0
+        
+        # Keep gradients for the original image for backpropagation
+        if x_0.requires_grad:
+            x.retain_grad()
+
+        t_max = torch.max(t)
+
+        # Blur all images to the max, but store all intermediate blurs for later retrieval
+        max_blurs = []
+        for i in range(t_max + 1):
+            x = x.unsqueeze(0) if len(x.shape) == 2  else x
+            x = self.gaussian_kernels[i](x).squeeze(0) 
+
+            # Make sure gradients are retained and kernels are frozen
+            if x_0.requires_grad:      
+                assert self.gaussian_kernels[i].requires_grad == False
+                assert x.requires_grad == True 
+
+            max_blurs.append(x)
+        
+        max_blurs = torch.stack(max_blurs)
+
+        # Choose the correct blur for each image in the batch
+        blur_t = []
         for step in range(t.shape[0]):
-            if step != -1:
-                choose_blur.append(all_blurs[t[step], step])
-            else:
-                choose_blur.append(x_start[step])
+            blur_t.append(max_blurs[t[step], step])
+            assert max_blurs[t[step], step].shape == x_0.shape[1:], f"Shape mismatch: {max_blurs[t[step], step].shape} and {x_0.shape} at time step {i}"
 
-        choose_blur = torch.stack(choose_blur)
-        if self.discrete:
-            choose_blur = (choose_blur + 1) * 0.5
-            choose_blur = (choose_blur * 255)
-            choose_blur = choose_blur.int().float() / 255
-            choose_blur = choose_blur * 2 - 1
-        #choose_blur = all_blurs
-        return choose_blur
+        return torch.stack(blur_t)
 
 
     def p_losses(self, x_start, t):

@@ -643,7 +643,7 @@ class Sampler:
         samples = []
         samples.append(x_t) 
         for t in tqdm(reversed(range(1, self.timesteps)), desc=f"Cold Sampling {symm_string}"):
-            t_tensor = torch.tensor([t], dtype=torch.long).repeat(x_t.shape[0]).to(self.device)
+            t_tensor = torch.tensor([t], dtype=torch.long).repeat(x_t.shape[0]).to(self.device) #### ATTENTION: TRY T-1 AS IN COLD DIFFUSION!!!
             model_pred = model(x_t, t_tensor)
             x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t_tensor, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_tm1 = x_t - self.degradation.degrade(x_0_hat, t_tensor) + self.degradation.degrade(x_0_hat, t_tensor - 1)
