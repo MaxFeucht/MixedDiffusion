@@ -45,25 +45,30 @@ cd /var/scratch/mft520/experiments
 
 lr=2e-5
 batch_size=128
-timesteps=200
+timesteps=150
 dim=128
 epochs=1000
-prediction="x0"
-degradation="blur"
-noise_schedule="cosine"
-dataset="cifar10"
-sample_interval=1
-n_samples=72
-model_ema_steps=10
-model_ema_decay=0.995
-num_train_steps=700000
+blur_routine="Special_6_routine"
+sampling_routine="x0_step_down"
+data_path="root_cifar10/"
+save_folder="output/"
+
+# dataset="cifar10"
+# sample_interval=1
+# n_samples=72
+# model_ema_steps=10
+# model_ema_decay=0.995
+# num_train_steps=700000
 
 
 # Run the actual experiment. 
-python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size $batch_size --timesteps $timesteps --dim $dim \
-                                                --lr $lr --prediction $prediction --degradation $degradation \
-                                                --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
-                                                --n_samples $n_samples --num_train_steps $num_train_steps \
-                                                --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
-                                                --load_checkpoint --cluster --add_noise --skip_ema
+# python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size $batch_size --timesteps $timesteps --dim $dim \
+#                                                 --lr $lr --prediction $prediction --degradation $degradation \
+#                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
+#                                                 --n_samples $n_samples --num_train_steps $num_train_steps \
+#                                                 --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
+#                                                 --load_checkpoint --cluster --add_noise --skip_ema
+
+python cifar10_train.py --time_steps $timesteps --blur_routine $blur_routine --sampling_routine $sample_routine --data_path $data_path --save_folder $save_folder
+
 echo "Script finished"
