@@ -161,7 +161,7 @@ diffusion = GaussianDiffusion(
 ).to(device)
 
 import torch
-diffusion = torch.nn.DataParallel(diffusion, device_ids=range(torch.cuda.device_count()))
+#diffusion = torch.nn.DataParallel(diffusion, device_ids=range(torch.cuda.device_count()))
 
 
 trainer = Trainer(

@@ -69,6 +69,6 @@ save_folder="output/"
 #                                                 --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
 #                                                 --load_checkpoint --cluster --add_noise --skip_ema
 
-python cifar10_train.py --time_steps $timesteps --blur_routine $blur_routine --sampling_routine $sample_routine --data_path $data_path --save_folder $save_folder
+python  /var/scratch/mft520/MixedDiffusion/colddiff.py --time_steps $timesteps --blur_routine $blur_routine --sampling_routine $sample_routine --data_path $data_path --save_folder $save_folder
 
 echo "Script finished"
