@@ -1216,7 +1216,8 @@ class Trainer(object):
                 milestone = self.step // self.save_and_sample_every
                 batches = self.batch_size
                 og_img = next(self.dl).to(device)
-                xt, direct_recons, all_images = self.ema_model.module.sample(batch_size=batches, img=og_img) # change for DP
+                self.model.eval()
+                xt, direct_recons, all_images = self.model.sample(batch_size=batches, img=og_img) # change for DP
 
                 og_img = (og_img + 1) * 0.5
                 utils.save_image(og_img, str(self.results_folder / f'sample-og-{milestone}.png'), nrow=6)
