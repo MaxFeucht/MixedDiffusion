@@ -964,7 +964,7 @@ class GaussianDiffusion(nn.Module):
     
 
     
-    def q_sample(self, x_0, t):
+    def q_sample(self, x_start, t):
         """
         Function to blur an image x at time t.
         
@@ -978,10 +978,10 @@ class GaussianDiffusion(nn.Module):
         for kernel in self.gaussian_kernels:
             kernel.requires_grad = False
 
-        x = x_0
+        x = x_start
         
         # Keep gradients for the original image for backpropagation
-        if x_0.requires_grad:
+        if x_start.requires_grad:
             x.retain_grad()
 
         t_max = torch.max(t)
@@ -993,7 +993,7 @@ class GaussianDiffusion(nn.Module):
             x = self.gaussian_kernels[i](x).squeeze(0) 
 
             # Make sure gradients are retained and kernels are frozen
-            if x_0.requires_grad:      
+            if x_start.requires_grad:      
                 assert self.gaussian_kernels[i].requires_grad == False
                 assert x.requires_grad == True 
 
@@ -1005,7 +1005,7 @@ class GaussianDiffusion(nn.Module):
         blur_t = []
         for step in range(t.shape[0]):
             blur_t.append(max_blurs[t[step], step])
-            assert max_blurs[t[step], step].shape == x_0.shape[1:], f"Shape mismatch: {max_blurs[t[step], step].shape} and {x_0.shape} at time step {i}"
+            assert max_blurs[t[step], step].shape == x_start.shape[1:], f"Shape mismatch: {max_blurs[t[step], step].shape} and {x_start.shape} at time step {i}"
 
         return torch.stack(blur_t)
 
