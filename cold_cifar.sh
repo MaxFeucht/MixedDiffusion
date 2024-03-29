@@ -45,7 +45,7 @@ cd /var/scratch/mft520/experiments
 
 lr=2e-5
 batch_size=128
-timesteps=150
+timesteps=300
 dim=128
 epochs=1000
 blur_routine="Special_6_routine"
