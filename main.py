@@ -271,7 +271,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=1000, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
-    parser.add_argument('--dim', '--d', type=int, default=128, help='Model dimension')
+    parser.add_argument('--dim', '--d', type=int , default=128, help='Model dimension')
     parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method')
     parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
