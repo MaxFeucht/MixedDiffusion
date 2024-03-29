@@ -998,7 +998,7 @@ class Dataset_Aug1(data.Dataset):
             transforms.Lambda(self.lambda_func)
         ])
 
-    def lambda_func(x):
+    def lambda_func(self, x):
             return (x * 2) - 1
         
     def __len__(self):
