@@ -51,7 +51,7 @@ epochs=1000
 blur_routine="Special_6_routine"
 sampling_routine="x0_step_down"
 data_path="root_cifar10/"
-save_folder="output/"
+save_folder="results_cifar10/"
 
 # dataset="cifar10"
 # sample_interval=1
