@@ -244,8 +244,9 @@ def main(**kwargs):
         
             # Sample
             nrow = 6
-            samples = sampler.sample(trainer.model, kwargs['n_samples'])
+            samples, x_T = sampler.sample(trainer.model, kwargs['n_samples'])
             save_image(samples[-1], os.path.join(imgpath, f'epoch_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
+            save_image(x_T, os.path.join(imgpath, f'x_T_epoch_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
             save_video(samples, imgpath, nrow, f'epoch_{e}.mp4')
             save_gif(samples, imgpath, nrow, f'epoch_{e}.gif')
 

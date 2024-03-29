@@ -598,6 +598,8 @@ class Sampler:
         else:
             x_t = self.x_T
         
+        ret_x_T = x_t
+
         samples = []
         for t in tqdm(reversed(range(self.timesteps)), desc="DDPM Sampling"):
             samples.append(x_t) 
@@ -610,7 +612,7 @@ class Sampler:
             x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x_0_hat + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_t = x_t_m1
         
-        return x_t.unsqueeze(0) if not return_trajectory else samples
+        return x_t.unsqueeze(0), ret_x_T if not return_trajectory else samples, ret_x_T
     
 
     @torch.no_grad() 
@@ -639,6 +641,7 @@ class Sampler:
             x_t = self.x_T
 
         symm_string = 'with broken symmetry' if self.break_symmetry else ''
+        ret_x_T = x_t
 
         samples = []
         samples.append(x_t) 
@@ -650,7 +653,7 @@ class Sampler:
             x_t = x_tm1 
             samples.append(x_t)
         
-        return x_t.unsqueeze(0) if not return_trajectory else samples
+        return x_t.unsqueeze(0), ret_x_T if not return_trajectory else samples, ret_x_T
 
 
     def sample(self, model, batch_size, return_trajectory = True):
