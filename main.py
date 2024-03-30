@@ -16,6 +16,7 @@ from torchvision import datasets
 from torchvision import transforms as T
 from torchvision.utils import save_image
 
+
 #from unet import UNet
 #from mnist_unet import MNISTUnet
 from scripts.karras_unet import KarrasUnet
@@ -244,19 +245,34 @@ def main(**kwargs):
         
             # Sample
             nrow = 6
-            try:
-                samples, x_T = sampler.sample(trainer.model, kwargs['n_samples'])
-                print("Sampling unpacking successful")
-            except:
-                smpl = sampler.sample(trainer.model, kwargs['n_samples'])
-                samples = smpl[0]
-                x_T = smpl[1]
-                print("Sampling unpacking failed, trying again")
+            #try:
+            og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
+            xt, direct_recons, all_images = sampler.sample_cold_orig(model = trainer.model, img = og_img, batch_size = kwargs['n_samples'])
+            #samples, x_T = sampler.sample(trainer.model, kwargs['n_samples'])
+            #print("Sampling unpacking successful")
+            # except Exception as e:
+            #     # smpl = sampler.sample(trainer.model, kwargs['n_samples'])
+            #     # samples = smpl[0]
+            #     # x_T = smpl[1]
+            #     print("Sampling unpacking failed, trying again, Exception: ", e)
 
-            save_image(samples[-1], os.path.join(imgpath, f'epoch_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
-            save_image(x_T, os.path.join(imgpath, f'x_T_epoch_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
-            save_video(samples, imgpath, nrow, f'epoch_{e}.mp4')
-            save_gif(samples, imgpath, nrow, f'epoch_{e}.gif')
+            og_img = (og_img + 1) * 0.5
+            save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
+
+            all_images = (all_images + 1) * 0.5
+            save_image(all_images, os.path.join(imgpath, f'sample_regular_{e}.png'), nrow=nrow)
+
+            direct_recons = (direct_recons + 1) * 0.5
+            save_image(direct_recons, os.path.join(imgpath, f'direct_recon_{e}.png'), nrow=nrow)
+
+            xt = (xt + 1) * 0.5
+            save_image(xt, os.path.join(imgpath, f'xt_{e}.png'), nrow=nrow)
+
+
+            # save_image(samples[-1], os.path.join(imgpath, f'epoch_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
+            # save_image(x_T, os.path.join(imgpath, f'x_T_epoch_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
+            # save_video(samples, imgpath, nrow, f'epoch_{e}.mp4')
+            # save_gif(samples, imgpath, nrow, f'epoch_{e}.gif')
 
             # Save checkpoint
             if not kwargs['test_run']:

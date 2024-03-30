@@ -9,6 +9,7 @@ from tqdm import tqdm
 from utils import save_image
 import os
 
+
 import warnings
 
 ### Forward Process ###
@@ -103,7 +104,8 @@ class Degradation:
                         'kernel_std': 2 if dataset == 'mnist' else 7, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
                         'timesteps': timesteps, 
                         'blur_routine': 'cifar' if dataset == 'cifar10' else 'constant' if dataset == 'mnist' else 'exponential',
-                        'mode': 'circular' if dataset == 'mnist' else 'reflect'} # if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
+                        'mode': 'circular' if dataset == 'mnist' else 'reflect',
+                        'device': self.device} # if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
             
         self.blur = Blurring(**blur_kwargs)
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
@@ -136,14 +138,17 @@ class Degradation:
         :param int t: The time step
         :return torch.Tensor: The degraded image at time t
         """
+
+        if not hasattr(self.blur, 'gaussian_kernels'):
+            self.blur.get_kernels()
         
-        gaussian_kernels = nn.ModuleList(self.blur.get_kernels())
+        assert self.blur.gaussian_kernels is not None, 'Gaussian Kernels not initialized'
 
         # Freeze kernels
-        for kernel in gaussian_kernels:
+        for kernel in self.blur.gaussian_kernels:
             kernel.requires_grad = False
 
-        gaussian_kernels.to(self.device)  # Move kernels to GPU
+        self.blur.gaussian_kernels.to(self.device)  # Move kernels to GPU
         x = x_0
         
         # Keep gradients for the original image for backpropagation
@@ -156,11 +161,11 @@ class Degradation:
         max_blurs = []
         for i in range(t_max + 1):
             x = x.unsqueeze(0) if len(x.shape) == 2  else x
-            x = gaussian_kernels[i](x).squeeze(0) 
+            x = self.blur.gaussian_kernels[i](x).squeeze(0) 
 
             # Make sure gradients are retained and kernels are frozen
             if x_0.requires_grad:      
-                assert gaussian_kernels[i].requires_grad == False
+                assert self.blur.gaussian_kernels[i].requires_grad == False
                 assert x.requires_grad == True 
 
             max_blurs.append(x)
@@ -214,7 +219,7 @@ class Degradation:
 
 class Blurring:
     
-    def __init__(self, timesteps, channels, kernel_size, kernel_std, blur_routine, mode):
+    def __init__(self, timesteps, channels, kernel_size, kernel_std, blur_routine, mode, device):
             """
             Initializes the Blurring class.
 
@@ -233,6 +238,7 @@ class Blurring:
             self.num_timesteps = timesteps
             self.blur_routine = blur_routine
             self.mode = mode
+            self.device = device
         
 
     def get_conv(self, dims, std, mode):
@@ -273,7 +279,8 @@ class Blurring:
         kernels = []
         for i in range(self.num_timesteps):
             kernels.append(self.get_conv((self.kernel_size, self.kernel_size), (self.kernel_stds[i], self.kernel_stds[i]), mode = self.mode)) 
-        return kernels
+        
+        self.gaussian_kernels = nn.ModuleList(kernels).to(self.device)
     
 
 
@@ -668,6 +675,53 @@ class Sampler:
             return samples, ret_x_T
         else:
             return x_t.unsqueeze(0), ret_x_T
+    
+    @torch.no_grad()
+    def sample_cold_orig(self, model, batch_size = 16, img=None):
+
+        model.eval()
+
+        t=self.timesteps
+
+        if not hasattr(self.degradation.blur, 'gaussian_kernels'):
+            self.degradation.blur.get_kernels()
+
+        for i in range(t):
+            with torch.no_grad():
+                img = self.degradation.blur.gaussian_kernels[i](img)
+
+        orig_mean = torch.mean(img, [2, 3], keepdim=True)
+        print(orig_mean.squeeze()[0])
+
+        temp = img
+
+        # 3(2), 2(1), 1(0)
+        xt = img
+        direct_recons = None
+        while(t):
+            step = torch.full((batch_size,), t - 1, dtype=torch.long).to(self.device)
+            x = model(img, step)
+
+            if direct_recons == None:
+                direct_recons = x
+
+            x_times = x
+            for i in range(t):
+                with torch.no_grad():
+                    x_times = self.degradation.blur.gaussian_kernels[i](x_times)
+
+                x_times_sub_1 = x
+                for i in range(t - 1):
+                    with torch.no_grad():
+                        x_times_sub_1 = self.degradation.blur.gaussian_kernels[i](x_times_sub_1)
+
+                x = img - x_times + x_times_sub_1
+            img = x
+            t = t - 1
+        
+        model.train()
+
+        return xt, direct_recons, img
 
 
     def sample(self, model, batch_size, return_trajectory = True):
