@@ -102,7 +102,7 @@ class Degradation:
                         'kernel_size': 5 if dataset == 'mnist' else 11, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
                         'kernel_std': 2 if dataset == 'mnist' else 7, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
                         'timesteps': timesteps, 
-                        'blur_routine': 'cifar',
+                        'blur_routine': 'cifar' if dataset == 'cifar10' else 'constant' if dataset == 'mnist' else 'exponential',
                         'mode': 'circular' if dataset == 'mnist' else 'reflect'} # if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
             
         self.blur = Blurring(**blur_kwargs)
@@ -657,7 +657,7 @@ class Sampler:
         samples = []
         samples.append(x_t) 
         for t in tqdm(reversed(range(1, self.timesteps)), desc=f"Cold Sampling {symm_string}"):
-            t_tensor = torch.tensor([t], dtype=torch.long).repeat(x_t.shape[0]).to(self.device) #### ATTENTION: TRY T-1 AS IN COLD DIFFUSION!!!
+            t_tensor = torch.tensor([t-1], dtype=torch.long).repeat(x_t.shape[0]).to(self.device) #### ATTENTION: TRY T-1 AS IN COLD DIFFUSION!!!
             model_pred = model(x_t, t_tensor)
             x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t_tensor, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_tm1 = x_t - self.degradation.degrade(x_0_hat, t_tensor) + self.degradation.degrade(x_0_hat, t_tensor - 1)
