@@ -6,6 +6,8 @@ from sklearn.mixture import GaussianMixture
 
 import math
 from tqdm import tqdm
+from utils import save_image
+import os
 
 import warnings
 
@@ -97,10 +99,11 @@ class Degradation:
         
         # Default settings
         blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
-                        'kernel_size': 11, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
-                        'kernel_std': 10, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
+                        'kernel_size': 5 if dataset == 'mnist' else 11, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
+                        'kernel_std': 2 if dataset == 'mnist' else 7, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
                         'timesteps': timesteps, 
-                        'blur_routine': 'cifar'} # if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
+                        'blur_routine': 'cifar',
+                        'mode': 'circular' if dataset == 'mnist' else 'reflect'} # if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
             
         self.blur = Blurring(**blur_kwargs)
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
@@ -211,7 +214,7 @@ class Degradation:
 
 class Blurring:
     
-    def __init__(self, timesteps, channels, kernel_size, kernel_std, blur_routine):
+    def __init__(self, timesteps, channels, kernel_size, kernel_std, blur_routine, mode):
             """
             Initializes the Blurring class.
 
@@ -229,19 +232,21 @@ class Blurring:
             self.kernel_stds = scheduler.get_blur_schedule(timesteps = timesteps, std = kernel_std, type = blur_routine) 
             self.num_timesteps = timesteps
             self.blur_routine = blur_routine
+            self.mode = mode
         
 
-    def get_conv(self, dims, std):
+    def get_conv(self, dims, std, mode):
         """
         Function to obtain a 2D convolutional layer with a Gaussian Blurring kernel.
         
         :param tuple dims: The dimensions of the kernel
         :param tuple std: The standard deviation of the kernel
+        :param str mode: The padding mode
         :return nn.Conv2d: The 2D convolutional layer with the Gaussian Blurring kernel
         """
         
         kernel = tgm.image.get_gaussian_kernel2d(dims, std) 
-        conv = nn.Conv2d(in_channels=self.channels, out_channels=self.channels, kernel_size=dims, padding=int((dims[0]-1)/2), padding_mode='circular',
+        conv = nn.Conv2d(in_channels=self.channels, out_channels=self.channels, kernel_size=dims, padding=int((dims[0]-1)/2), padding_mode=mode,
                          bias=False, groups=self.channels)
         
         kernel = torch.unsqueeze(kernel, 0)
@@ -267,7 +272,7 @@ class Blurring:
         
         kernels = []
         for i in range(self.num_timesteps):
-            kernels.append(self.get_conv((self.kernel_size, self.kernel_size), (self.kernel_stds[i], self.kernel_stds[i]))) 
+            kernels.append(self.get_conv((self.kernel_size, self.kernel_size), (self.kernel_stds[i], self.kernel_stds[i]), mode = self.mode)) 
         return kernels
     
 
@@ -464,6 +469,10 @@ class Trainer:
             #loss = self.loss.darras_loss(target, pred, t)
         else:
             loss = self.loss.mse_loss(target, pred)
+        
+        # if save:
+        #     save_image(x_t[-1], os.path.join('./imgs/cifar10_blur/test', f'test.png'), nrow=6) #int(math.sqrt(kwargs['n_samples']))
+
     
         return loss
     
@@ -612,8 +621,10 @@ class Sampler:
             x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x_0_hat + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_t = x_t_m1
         
-        return x_t.unsqueeze(0), ret_x_T if not return_trajectory else samples, ret_x_T
-    
+        if return_trajectory:
+            return samples, ret_x_T
+        else:
+            return x_t.unsqueeze(0), ret_x_T    
 
     @torch.no_grad() 
     def sample_ddim(self, model, batch_size, return_trajectory):
@@ -653,7 +664,10 @@ class Sampler:
             x_t = x_tm1 
             samples.append(x_t)
         
-        return x_t.unsqueeze(0), ret_x_T if not return_trajectory else samples, ret_x_T
+        if return_trajectory:
+            return samples, ret_x_T
+        else:
+            return x_t.unsqueeze(0), ret_x_T
 
 
     def sample(self, model, batch_size, return_trajectory = True):

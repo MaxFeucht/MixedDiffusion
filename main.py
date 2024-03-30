@@ -244,7 +244,15 @@ def main(**kwargs):
         
             # Sample
             nrow = 6
-            samples, x_T = sampler.sample(trainer.model, kwargs['n_samples'])
+            try:
+                samples, x_T = sampler.sample(trainer.model, kwargs['n_samples'])
+                print("Sampling unpacking successful")
+            except:
+                smpl = sampler.sample(trainer.model, kwargs['n_samples'])
+                samples = smpl[0]
+                x_T = smpl[1]
+                print("Sampling unpacking failed, trying again")
+
             save_image(samples[-1], os.path.join(imgpath, f'epoch_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
             save_image(x_T, os.path.join(imgpath, f'x_T_epoch_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
             save_video(samples, imgpath, nrow, f'epoch_{e}.mp4')
@@ -268,15 +276,15 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=1000, help='Degradation timesteps')
-    parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
-    parser.add_argument('--epochs', '--e', type=int, default=1000, help='Number of Training Epochs')
+    parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
+    parser.add_argument('--lr', type=float, default=2e-5, help='Learning rate')
+    parser.add_argument('--epochs', '--e', type=int, default=10, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=128, help='Model dimension')
-    parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method')
-    parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
+    parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
+    parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
-    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--dataset', type=str, default='cifar10', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
@@ -287,8 +295,8 @@ if __name__ == "__main__":
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
     parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
     parser.add_argument('--num_train_steps', type=int, default=700000, help='Number of training steps')
-    parser.add_argument('--kernel_size', type=int, default=5, help='Number of training steps')
-    parser.add_argument('--kernel_std', type=float, default=0.01, help='Number of training steps')
+    parser.add_argument('--kernel_size', type=int, default=3, help='Number of training steps')
+    parser.add_argument('--kernel_std', type=float, default=0.1, help='Number of training steps')
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
     parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
 
