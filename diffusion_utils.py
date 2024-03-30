@@ -710,12 +710,12 @@ class Sampler:
                 with torch.no_grad():
                     x_times = self.degradation.blur.gaussian_kernels[i](x_times)
 
-                x_times_sub_1 = x
-                for i in range(t - 1):
-                    with torch.no_grad():
-                        x_times_sub_1 = self.degradation.blur.gaussian_kernels[i](x_times_sub_1)
+            x_times_sub_1 = x
+            for i in range(t - 1):
+                with torch.no_grad():
+                    x_times_sub_1 = self.degradation.blur.gaussian_kernels[i](x_times_sub_1)
 
-                x = img - x_times + x_times_sub_1
+            x = img - x_times + x_times_sub_1
             img = x
             t = t - 1
         
