@@ -260,7 +260,8 @@ def main(**kwargs):
             #try:
             og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
             xt, direct_recons, all_images = sampler.sample_cold_orig(model = trainer.model, img = og_img, batch_size = kwargs['n_samples'])
-            samples, x_T = sampler.sample(trainer.model, kwargs['n_samples'])
+            gen_xt, gen_direct_recons, gen_all_images = sampler.sample_cold_orig(model = trainer.model, img = og_img, batch_size = kwargs['n_samples'], generate=True)
+            #samples, x_T = sampler.sample(trainer.model, kwargs['n_samples'])
             #print("Sampling unpacking successful")
             # except Exception as e:
             #     # smpl = sampler.sample(trainer.model, kwargs['n_samples'])
@@ -281,10 +282,23 @@ def main(**kwargs):
             #xt = (xt + 1) * 0.5
             save_image(xt, os.path.join(imgpath, f'xt_{e}.png'), nrow=nrow)
 
+            # Training Process unconditional generation
+            #og_img = (og_img + 1) * 0.5
+            save_image(og_img, os.path.join(imgpath, f'gen_orig_{e}.png'), nrow=nrow)
+
+            #all_images = (all_images + 1) * 0.5
+            save_image(gen_all_images, os.path.join(imgpath, f'gen_sample_regular_{e}.png'), nrow=nrow)
+
+            #direct_recons = (direct_recons + 1) * 0.5
+            save_image(gen_direct_recons, os.path.join(imgpath, f'gen_direct_recon_{e}.png'), nrow=nrow)
+
+            #xt = (xt + 1) * 0.5
+            save_image(gen_xt, os.path.join(imgpath, f'gen_xt_{e}.png'), nrow=nrow)
+
             # Newly generated
-            save_image(samples[-1], os.path.join(imgpath, f'sample_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
-            save_video(samples, imgpath, nrow, f'sample_{e}.mp4')
-            save_gif(samples, imgpath, nrow, f'sample_{e}.gif')
+            # save_image(samples[-1], os.path.join(imgpath, f'sample_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
+            # save_video(samples, imgpath, nrow, f'sample_{e}.mp4')
+            # save_gif(samples, imgpath, nrow, f'sample_{e}.gif')
 
             # Save checkpoint
             if not kwargs['test_run']:
@@ -304,7 +318,7 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=100, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=200, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=10, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
@@ -326,7 +340,7 @@ if __name__ == "__main__":
     parser.add_argument('--kernel_size', type=int, default=3, help='Number of training steps')
     parser.add_argument('--kernel_std', type=float, default=0.1, help='Number of training steps')
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
-    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
 
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the deterministic sampling')
 

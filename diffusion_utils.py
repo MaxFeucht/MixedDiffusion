@@ -670,7 +670,7 @@ class Sampler:
             return x_t.unsqueeze(0), ret_x_T
     
     @torch.no_grad()
-    def sample_cold_orig(self, model, batch_size = 16, img=None):
+    def sample_cold_orig(self, model, batch_size = 16, img=None, generate = False):
 
         model.eval()
 
@@ -683,13 +683,18 @@ class Sampler:
             with torch.no_grad():
                 img = self.degradation.blur.gaussian_kernels[i](img)
 
-        orig_mean = torch.mean(img, [2, 3], keepdim=True)
-        print(orig_mean.squeeze()[0])
+        # Decide whether to generate x_T or use the degraded input image (reconstruction)
+        if generate:
+            # Sample x_T either every time new or once and keep it fixed 
+            if self.x_T is None:
+                xt = self.sample_x_T(batch_size, 3, model.resolution)
+            else:
+                xt = self.x_T
+        else:
+            xt = img
 
-        temp = img
+        img = xt
 
-        # 3(2), 2(1), 1(0)
-        xt = img
         direct_recons = None
         while(t):
             step = torch.full((batch_size,), t - 1, dtype=torch.long).to(self.device)
