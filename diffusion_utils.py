@@ -687,7 +687,7 @@ class Sampler:
         if generate:
             # Sample x_T either every time new or once and keep it fixed 
             if self.x_T is None:
-                xt = self.sample_x_T(batch_size, 3, model.resolution)
+                xt = self.sample_x_T(batch_size, model.in_channels, model.resolution)
             else:
                 xt = self.x_T
         else:

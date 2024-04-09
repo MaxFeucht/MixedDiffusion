@@ -270,29 +270,15 @@ def main(**kwargs):
             #     print("Sampling unpacking failed, trying again, Exception: ", e)
 
             # Training Process conditional generation
-            #og_img = (og_img + 1) * 0.5
             save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
-
-            #all_images = (all_images + 1) * 0.5
             save_image(all_images, os.path.join(imgpath, f'sample_regular_{e}.png'), nrow=nrow)
-
-            #direct_recons = (direct_recons + 1) * 0.5
             save_image(direct_recons, os.path.join(imgpath, f'direct_recon_{e}.png'), nrow=nrow)
-
-            #xt = (xt + 1) * 0.5
             save_image(xt, os.path.join(imgpath, f'xt_{e}.png'), nrow=nrow)
 
             # Training Process unconditional generation
-            #og_img = (og_img + 1) * 0.5
             save_image(og_img, os.path.join(imgpath, f'gen_orig_{e}.png'), nrow=nrow)
-
-            #all_images = (all_images + 1) * 0.5
             save_image(gen_all_images, os.path.join(imgpath, f'gen_sample_regular_{e}.png'), nrow=nrow)
-
-            #direct_recons = (direct_recons + 1) * 0.5
             save_image(gen_direct_recons, os.path.join(imgpath, f'gen_direct_recon_{e}.png'), nrow=nrow)
-
-            #xt = (xt + 1) * 0.5
             save_image(gen_xt, os.path.join(imgpath, f'gen_xt_{e}.png'), nrow=nrow)
 
             # Newly generated
@@ -340,7 +326,7 @@ if __name__ == "__main__":
     parser.add_argument('--kernel_size', type=int, default=3, help='Number of training steps')
     parser.add_argument('--kernel_std', type=float, default=0.1, help='Number of training steps')
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
-    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
 
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the deterministic sampling')
 
