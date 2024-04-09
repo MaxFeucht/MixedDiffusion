@@ -17,9 +17,10 @@ from torchvision import transforms as T
 from torchvision.utils import save_image
 
 
-#from unet import UNet
+from unet import UNet
 #from mnist_unet import MNISTUnet
 from scripts.karras_unet import KarrasUnet
+from scripts.bansal_unet import BansalUnet
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
 from utils import create_dirs, save_video, save_gif, MyCelebA
 
@@ -181,14 +182,25 @@ def main(**kwargs):
     #                  dim_mults=[2,4],
     #                  base_dim=kwargs['dim'])
 
-    unet = KarrasUnet(image_size=imsize, 
-                    channels=channels, 
-                    num_downsamples=kwargs['num_downsamples'], 
-                    dim = kwargs['dim'], 
-                    dim_max = kwargs['dim']*2**kwargs['num_downsamples'],
-                    dropout = 0)
+    # unet = KarrasUnet(image_size=imsize, 
+    #                 channels=channels, 
+    #                 num_downsamples=kwargs['num_downsamples'], 
+    #                 dim = kwargs['dim'], 
+    #                 dim_max = kwargs['dim']*2**kwargs['num_downsamples'],
+    #                 num_blocks_per_stage=2,
+    #                 fourier_dim=16,
+    #                 dropout = 0)
     
-    
+    unet = BansalUnet(resolution=imsize,
+                    in_channels=3,
+                    out_ch=3,
+                    ch=128,
+                    ch_mult=(1,2,2,2),
+                    num_res_blocks=2,
+                    attn_resolutions=(16,),
+                    dropout=0.1)
+
+
     # # Enable Multi-GPU training
     # if torch.cuda.device_count() > 1:
     #     print("Let's use", torch.cuda.device_count(), "GPUs!")
@@ -257,16 +269,16 @@ def main(**kwargs):
             #     print("Sampling unpacking failed, trying again, Exception: ", e)
 
             # Training Process conditional generation
-            og_img = (og_img + 1) * 0.5
+            #og_img = (og_img + 1) * 0.5
             save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
 
-            all_images = (all_images + 1) * 0.5
+            #all_images = (all_images + 1) * 0.5
             save_image(all_images, os.path.join(imgpath, f'sample_regular_{e}.png'), nrow=nrow)
 
-            direct_recons = (direct_recons + 1) * 0.5
+            #direct_recons = (direct_recons + 1) * 0.5
             save_image(direct_recons, os.path.join(imgpath, f'direct_recon_{e}.png'), nrow=nrow)
 
-            xt = (xt + 1) * 0.5
+            #xt = (xt + 1) * 0.5
             save_image(xt, os.path.join(imgpath, f'xt_{e}.png'), nrow=nrow)
 
             # Newly generated
@@ -292,7 +304,7 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=100, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=10, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
@@ -300,7 +312,7 @@ if __name__ == "__main__":
     parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
     parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
-    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--dataset', type=str, default='cifar10', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')

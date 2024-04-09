@@ -479,7 +479,7 @@ class UNet(Module):
         num_downsamples = 3,
         num_blocks_per_stage = 2,
         attn_res = (16, 8),
-        fourier_dim = 32,
+        fourier_dim = 16,
         attn_dim_head = 64,
         mp_cat_t = 0.5,
         mp_add_emb_t = 0.5,
