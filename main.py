@@ -173,7 +173,7 @@ def main(**kwargs):
     #             num_downsamples=kwargs['num_downsamples'], 
     #             dim = kwargs['dim'], 
     #             dim_max =  kwargs['dim']*2**kwargs['num_downsamples'],
-    #             dropout = 0)
+    #             dropout = 0.1)
     
     # unet = MNISTUnet(timesteps=kwargs['timesteps'],
     #                  in_channels=channels,
@@ -182,23 +182,23 @@ def main(**kwargs):
     #                  dim_mults=[2,4],
     #                  base_dim=kwargs['dim'])
 
-    unet = KarrasUnet(image_size=imsize, 
-                    channels=channels, 
-                    num_downsamples=kwargs['num_downsamples'], 
-                    dim = kwargs['dim'], 
-                    dim_max = kwargs['dim']*2**kwargs['num_downsamples'],
-                    num_blocks_per_stage=2,
-                    fourier_dim=16,
-                    dropout = 0)
+    # unet = KarrasUnet(image_size=imsize, 
+    #                 channels=channels, 
+    #                 num_downsamples=kwargs['num_downsamples'], 
+    #                 dim = kwargs['dim'], 
+    #                 dim_max = kwargs['dim']*2**kwargs['num_downsamples'],
+    #                 num_blocks_per_stage=2,
+    #                 fourier_dim=16,
+    #                 dropout = 0.1)
     
-    # unet = BansalUnet(image_size=imsize,
-    #                 channels=3,
-    #                 out_ch=3,
-    #                 ch=128,
-    #                 ch_mult=(1,2,2,2),
-    #                 num_res_blocks=2,
-    #                 attn_resolutions=(16,),
-    #                 dropout=0.1)
+    unet = BansalUnet(image_size=imsize,
+                    channels=3,
+                    out_ch=3,
+                    ch=kwargs['dim'],
+                    ch_mult=(1,2,2,2),
+                    num_res_blocks=2,
+                    attn_resolutions=(16,),
+                    dropout=0.1)
 
 
     # # Enable Multi-GPU training
