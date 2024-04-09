@@ -4,7 +4,7 @@
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
-#SBATCH -C A6000
+#SBATCH -C A4000
 #SBATCH --gres=gpu:1
 #SBATCH -o output.out
 
@@ -45,7 +45,7 @@ cd /var/scratch/mft520/experiments
 
 lr=1e-4
 batch_size=128
-timesteps=200
+timesteps=150
 dim=64
 epochs=1000
 prediction="x0"
