@@ -191,8 +191,8 @@ def main(**kwargs):
                     fourier_dim=16,
                     dropout = 0)
     
-    # unet = BansalUnet(resolution=imsize,
-    #                 in_channels=3,
+    # unet = BansalUnet(image_size=imsize,
+    #                 channels=3,
     #                 out_ch=3,
     #                 ch=128,
     #                 ch_mult=(1,2,2,2),

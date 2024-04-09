@@ -29,17 +29,17 @@ def nonlinearity(x):
     return x*torch.sigmoid(x)
 
 
-def Normalize(in_channels):
-    return torch.nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
+def Normalize(channels):
+    return torch.nn.GroupNorm(num_groups=32, num_channels=channels, eps=1e-6, affine=True)
 
 
 class Upsample(nn.Module):
-    def __init__(self, in_channels, with_conv):
+    def __init__(self, channels, with_conv):
         super().__init__()
         self.with_conv = with_conv
         if self.with_conv:
-            self.conv = torch.nn.Conv2d(in_channels,
-                                        in_channels,
+            self.conv = torch.nn.Conv2d(channels,
+                                        channels,
                                         kernel_size=3,
                                         stride=1,
                                         padding=1)
@@ -52,13 +52,13 @@ class Upsample(nn.Module):
 
 
 class Downsample(nn.Module):
-    def __init__(self, in_channels, with_conv):
+    def __init__(self, channels, with_conv):
         super().__init__()
         self.with_conv = with_conv
         if self.with_conv:
             # no asymmetric padding in torch conv, must do it ourselves
-            self.conv = torch.nn.Conv2d(in_channels,
-                                        in_channels,
+            self.conv = torch.nn.Conv2d(channels,
+                                        channels,
                                         kernel_size=3,
                                         stride=2,
                                         padding=0)
@@ -74,16 +74,16 @@ class Downsample(nn.Module):
 
 
 class ResnetBlock(nn.Module):
-    def __init__(self, *, in_channels, out_channels=None, conv_shortcut=False,
+    def __init__(self, *, channels, out_channels=None, conv_shortcut=False,
                  dropout, temb_channels=512):
         super().__init__()
-        self.in_channels = in_channels
-        out_channels = in_channels if out_channels is None else out_channels
+        self.channels = channels
+        out_channels = channels if out_channels is None else out_channels
         self.out_channels = out_channels
         self.use_conv_shortcut = conv_shortcut
 
-        self.norm1 = Normalize(in_channels)
-        self.conv1 = torch.nn.Conv2d(in_channels,
+        self.norm1 = Normalize(channels)
+        self.conv1 = torch.nn.Conv2d(channels,
                                      out_channels,
                                      kernel_size=3,
                                      stride=1,
@@ -97,15 +97,15 @@ class ResnetBlock(nn.Module):
                                      kernel_size=3,
                                      stride=1,
                                      padding=1)
-        if self.in_channels != self.out_channels:
+        if self.channels != self.out_channels:
             if self.use_conv_shortcut:
-                self.conv_shortcut = torch.nn.Conv2d(in_channels,
+                self.conv_shortcut = torch.nn.Conv2d(channels,
                                                      out_channels,
                                                      kernel_size=3,
                                                      stride=1,
                                                      padding=1)
             else:
-                self.nin_shortcut = torch.nn.Conv2d(in_channels,
+                self.nin_shortcut = torch.nn.Conv2d(channels,
                                                     out_channels,
                                                     kernel_size=1,
                                                     stride=1,
@@ -124,7 +124,7 @@ class ResnetBlock(nn.Module):
         h = self.dropout(h)
         h = self.conv2(h)
 
-        if self.in_channels != self.out_channels:
+        if self.channels != self.out_channels:
             if self.use_conv_shortcut:
                 x = self.conv_shortcut(x)
             else:
@@ -134,28 +134,28 @@ class ResnetBlock(nn.Module):
 
 
 class AttnBlock(nn.Module):
-    def __init__(self, in_channels):
+    def __init__(self, channels):
         super().__init__()
-        self.in_channels = in_channels
+        self.channels = channels
 
-        self.norm = Normalize(in_channels)
-        self.q = torch.nn.Conv2d(in_channels,
-                                 in_channels,
+        self.norm = Normalize(channels)
+        self.q = torch.nn.Conv2d(channels,
+                                 channels,
                                  kernel_size=1,
                                  stride=1,
                                  padding=0)
-        self.k = torch.nn.Conv2d(in_channels,
-                                 in_channels,
+        self.k = torch.nn.Conv2d(channels,
+                                 channels,
                                  kernel_size=1,
                                  stride=1,
                                  padding=0)
-        self.v = torch.nn.Conv2d(in_channels,
-                                 in_channels,
+        self.v = torch.nn.Conv2d(channels,
+                                 channels,
                                  kernel_size=1,
                                  stride=1,
                                  padding=0)
-        self.proj_out = torch.nn.Conv2d(in_channels,
-                                        in_channels,
+        self.proj_out = torch.nn.Conv2d(channels,
+                                        channels,
                                         kernel_size=1,
                                         stride=1,
                                         padding=0)
@@ -190,15 +190,15 @@ class AttnBlock(nn.Module):
 
 class BansalUnet(nn.Module):
     def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks,
-                 attn_resolutions, dropout=0.0, resamp_with_conv=True, in_channels,
-                 resolution):
+                 attn_resolutions, dropout=0.0, resamp_with_conv=True, channels,
+                 image_size):
         super().__init__()
         self.ch = ch
         self.temb_ch = self.ch*4
         self.num_resolutions = len(ch_mult)
         self.num_res_blocks = num_res_blocks
-        self.resolution = resolution
-        self.in_channels = in_channels
+        self.image_size = image_size
+        self.channels = channels
 
         # timestep embedding
         self.temb = nn.Module()
@@ -210,13 +210,13 @@ class BansalUnet(nn.Module):
         ])
 
         # downsampling
-        self.conv_in = torch.nn.Conv2d(in_channels,
+        self.conv_in = torch.nn.Conv2d(channels,
                                        self.ch,
                                        kernel_size=3,
                                        stride=1,
                                        padding=1)
 
-        curr_res = resolution
+        curr_res = image_size
         in_ch_mult = (1,)+ch_mult
         self.down = nn.ModuleList()
         for i_level in range(self.num_resolutions):
@@ -225,7 +225,7 @@ class BansalUnet(nn.Module):
             block_in = ch*in_ch_mult[i_level]
             block_out = ch*ch_mult[i_level]
             for i_block in range(self.num_res_blocks):
-                block.append(ResnetBlock(in_channels=block_in,
+                block.append(ResnetBlock(channels=block_in,
                                          out_channels=block_out,
                                          temb_channels=self.temb_ch,
                                          dropout=dropout))
@@ -242,12 +242,12 @@ class BansalUnet(nn.Module):
 
         # middle
         self.mid = nn.Module()
-        self.mid.block_1 = ResnetBlock(in_channels=block_in,
+        self.mid.block_1 = ResnetBlock(channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=self.temb_ch,
                                        dropout=dropout)
         self.mid.attn_1 = AttnBlock(block_in)
-        self.mid.block_2 = ResnetBlock(in_channels=block_in,
+        self.mid.block_2 = ResnetBlock(channels=block_in,
                                        out_channels=block_in,
                                        temb_channels=self.temb_ch,
                                        dropout=dropout)
@@ -262,7 +262,7 @@ class BansalUnet(nn.Module):
             for i_block in range(self.num_res_blocks+1):
                 if i_block == self.num_res_blocks:
                     skip_in = ch*in_ch_mult[i_level]
-                block.append(ResnetBlock(in_channels=block_in+skip_in,
+                block.append(ResnetBlock(channels=block_in+skip_in,
                                          out_channels=block_out,
                                          temb_channels=self.temb_ch,
                                          dropout=dropout))
@@ -287,7 +287,7 @@ class BansalUnet(nn.Module):
 
 
     def forward(self, x, t):
-        assert x.shape[2] == x.shape[3] == self.resolution
+        assert x.shape[2] == x.shape[3] == self.image_size
 
         # timestep embedding
         temb = get_timestep_embedding(t, self.ch)
