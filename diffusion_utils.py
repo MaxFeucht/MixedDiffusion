@@ -159,9 +159,12 @@ class Degradation:
 
         # Blur all images to the max, but store all intermediate blurs for later retrieval
         max_blurs = []
-        for i in range(t_max + 1): ## INVESTIGATE THE +1, WHEN IT IS PRESENT AND WHEN NOT
+        for i in range(t_max + 1): ## +1 to account for zero indexing of range
             x = x.unsqueeze(0) if len(x.shape) == 2  else x
             x = self.blur.gaussian_kernels[i](x).squeeze(0) 
+            if i == (self.num_timesteps-1):
+                x = torch.mean(x, [2, 3], keepdim=True)
+                x = x.expand(x_0.shape[0], x_0.shape[1], x_0.shape[2], x_0.shape[3])
             max_blurs.append(x)
         
         max_blurs = torch.stack(max_blurs)
@@ -678,10 +681,14 @@ class Sampler:
 
         if not hasattr(self.degradation.blur, 'gaussian_kernels'):
             self.degradation.blur.get_kernels()
-
+        
+        temp = img
         for i in range(t):
             with torch.no_grad():
                 img = self.degradation.blur.gaussian_kernels[i](img)
+                if i == (self.num_timesteps-1):
+                    img = torch.mean(img, [2, 3], keepdim=True)
+                    img = img.expand(temp.shape[0], temp.shape[1], temp.shape[2], temp.shape[3])
 
         # Decide whether to generate x_T or use the degraded input image (reconstruction)
         if generate:
@@ -707,6 +714,9 @@ class Sampler:
             for i in range(t):
                 with torch.no_grad():
                     x_times = self.degradation.blur.gaussian_kernels[i](x_times)
+                    if i == (self.num_timesteps-1):
+                        x_times = torch.mean(x_times, [2, 3], keepdim=True)
+                        x_times = x_times.expand(temp.shape[0], temp.shape[1], temp.shape[2], temp.shape[3])
 
             x_times_sub_1 = x
             for i in range(t - 1):
