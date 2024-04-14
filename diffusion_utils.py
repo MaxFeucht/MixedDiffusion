@@ -697,8 +697,8 @@ class Sampler:
             #         if i == (self.timesteps-1):
             #             img = torch.mean(img, [2, 3], keepdim=True)
             #             img = img.expand(temp.shape[0], temp.shape[1], temp.shape[2], temp.shape[3])
-            step = torch.full((batch_size,), t - 2, dtype=torch.long).to(self.device) # t-2 to account for 0 indexing and the resulting t+1 in the degradation operation
-            img = self.degradation.degrade(img, t) # Adaption due to explanation below (0 indexing)
+            t_tensor = torch.full((batch_size,), t - 2, dtype=torch.long).to(self.device) # t-2 to account for 0 indexing and the resulting t+1 in the degradation operation
+            img = self.degradation.degrade(img, t_tensor) # Adaption due to explanation below (0 indexing)
             xt = img
 
         img = xt
