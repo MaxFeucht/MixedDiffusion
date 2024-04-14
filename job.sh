@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=blur_cifar
-#SBATCH --time=1:00:00
+#SBATCH --time=12:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq

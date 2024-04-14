@@ -120,7 +120,7 @@ parser.add_argument('--sampling_routine', default='x0_step_down', type=str,
                     help='The choice of sampling routine for reversing the diffusion process, when set as default it corresponds to Alg. 1 while when set as x0_step_down it stands for Alg. 2')
 parser.add_argument('--remove_time_embed', action="store_true")
 parser.add_argument('--residual', action="store_true")
-parser.add_argument('--discrete', action="store_true")
+parser.add_argument('--discrete', action="store_false")
 parser.add_argument('--da', default='cifar10', type=str)
 
 
