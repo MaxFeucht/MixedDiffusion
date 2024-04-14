@@ -45,13 +45,13 @@ cd /var/scratch/mft520/experiments
 
 lr=2e-5
 batch_size=128
-timesteps=300
+timesteps=40
 dim=128
 epochs=1000
 prediction="x0"
 degradation="blur"
 noise_schedule="cosine"
-dataset="cifar10"
+dataset="mnist"
 sample_interval=1
 n_samples=72
 model_ema_steps=10
