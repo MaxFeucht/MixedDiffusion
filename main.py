@@ -192,8 +192,8 @@ def main(**kwargs):
     #                 dropout = 0.1)
     
     unet = BansalUnet(image_size=imsize,
-                    channels=3,
-                    out_ch=3,
+                    channels=channels,
+                    out_ch=channels,
                     ch=kwargs['dim'],
                     ch_mult=(1,2,2,2),
                     num_res_blocks=2,
