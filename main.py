@@ -326,7 +326,7 @@ if __name__ == "__main__":
     parser.add_argument('--kernel_size', type=int, default=3, help='Number of training steps')
     parser.add_argument('--kernel_std', type=float, default=0.1, help='Number of training steps')
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
-    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
 
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the deterministic sampling')
 

@@ -677,7 +677,7 @@ class Sampler:
 
         model.eval()
 
-        t=self.timesteps
+        t=self.timesteps-1
 
         if not hasattr(self.degradation.blur, 'gaussian_kernels'):
             self.degradation.blur.get_kernels()
@@ -697,7 +697,7 @@ class Sampler:
             #         if i == (self.timesteps-1):
             #             img = torch.mean(img, [2, 3], keepdim=True)
             #             img = img.expand(temp.shape[0], temp.shape[1], temp.shape[2], temp.shape[3])
-            t_tensor = torch.full((batch_size,), t - 1, dtype=torch.long).to(self.device) # t-2 to account for 0 indexing and the resulting t+1 in the degradation operation
+            t_tensor = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-2 to account for 0 indexing and the resulting t+1 in the degradation operation
             img = self.degradation.degrade(img, t_tensor) # Adaption due to explanation below (0 indexing)
             xt = img
 
@@ -705,7 +705,7 @@ class Sampler:
 
         direct_recons = None
         while(t):
-            step = torch.full((batch_size,), t - 1, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
+            step = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
             x = model(img, step)
 
             if direct_recons == None:
