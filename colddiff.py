@@ -95,9 +95,9 @@ if create:
 
     for idx in range(len(trainset)):
         img, label = trainset[idx]
-        print(idx)
         img.save(root + str(label) + '/' + str(idx) + '.png')
 
+print('Arguments...')
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--time_steps', default=50, type=int,
@@ -171,4 +171,5 @@ trainer = Trainer(
     dataset = args.da
 )
 
+print('Training...')
 trainer.train()
