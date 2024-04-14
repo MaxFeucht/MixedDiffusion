@@ -690,15 +690,15 @@ class Sampler:
             else:
                 xt = self.x_T
         else:
-            #temp = img
-            # for i in range(t):
-            #     with torch.no_grad():
-            #         img = self.degradation.blur.gaussian_kernels[i](img)
-            #         if i == (self.timesteps-1):
-            #             img = torch.mean(img, [2, 3], keepdim=True)
-            #             img = img.expand(temp.shape[0], temp.shape[1], temp.shape[2], temp.shape[3])
-            t_tensor = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-2 to account for 0 indexing and the resulting t+1 in the degradation operation
-            img = self.degradation.degrade(img, t_tensor) # Adaption due to explanation below (0 indexing)
+            temp = img
+            for i in range(t):
+                with torch.no_grad():
+                    img = self.degradation.blur.gaussian_kernels[i](img)
+                    if i == (self.timesteps-1):
+                        img = torch.mean(img, [2, 3], keepdim=True)
+                        img = img.expand(temp.shape[0], temp.shape[1], temp.shape[2], temp.shape[3])
+            # t_tensor = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-2 to account for 0 indexing and the resulting t+1 in the degradation operation
+            # img = self.degradation.degrade(img, t_tensor) # Adaption due to explanation below (0 indexing)
             xt = img
 
         img = xt
@@ -719,20 +719,20 @@ class Sampler:
             # For now, we use t-2 in the initial step definition, but this is not the most elegant and robust solution, we just check if the loop still works like this. 
 
             x_times = x
-            x_times = self.degradation.degrade(x_times, step) 
-            # for i in range(t):
-            #     with torch.no_grad():
-            #         x_times = self.degradation.blur.gaussian_kernels[i](x_times)
-            #         if i == (self.timesteps-1):
-            #             x_times = torch.mean(x_times, [2, 3], keepdim=True)
-            #             x_times = x_times.expand(temp.shape[0], temp.shape[1], temp.shape[2], temp.shape[3])
+            # x_times = self.degradation.degrade(x_times, step) 
+            for i in range(t):
+                with torch.no_grad():
+                    x_times = self.degradation.blur.gaussian_kernels[i](x_times)
+                    if i == (self.timesteps-1):
+                        x_times = torch.mean(x_times, [2, 3], keepdim=True)
+                        x_times = x_times.expand(temp.shape[0], temp.shape[1], temp.shape[2], temp.shape[3])
 
 
             x_times_sub_1 = x
-            x_times_sub_1 = self.degradation.degrade(x_times, step - 1)
-            # for i in range(t - 1):
-            #     with torch.no_grad():
-            #         x_times_sub_1 = self.degradation.blur.gaussian_kernels[i](x_times_sub_1)
+            # x_times_sub_1 = self.degradation.degrade(x_times, step - 1)
+            for i in range(t - 1):
+                with torch.no_grad():
+                    x_times_sub_1 = self.degradation.blur.gaussian_kernels[i](x_times_sub_1)
 
             x = img - x_times + x_times_sub_1
             img = x
