@@ -274,19 +274,17 @@ def main(**kwargs):
 
             # Training Process conditional generation
             save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
+            save_image(xt, os.path.join(imgpath, f'xt_{e}.png'), nrow=nrow)
             save_image(all_images, os.path.join(imgpath, f'sample_regular_{e}.png'), nrow=nrow)
             save_image(direct_recons, os.path.join(imgpath, f'direct_recon_{e}.png'), nrow=nrow)
-            save_image(xt, os.path.join(imgpath, f'xt_{e}.png'), nrow=nrow)
 
             # Training Process unconditional generation
-            save_image(og_img, os.path.join(imgpath, f'gen_orig_{e}.png'), nrow=nrow)
-            save_image(gen_all_images, os.path.join(imgpath, f'gen_sample_regular_{e}.png'), nrow=nrow)
-            save_image(gen_direct_recons, os.path.join(imgpath, f'gen_direct_recon_{e}.png'), nrow=nrow)
             save_image(gen_xt, os.path.join(imgpath, f'gen_xt_{e}.png'), nrow=nrow)
+            save_image(gen_all_images, os.path.join(imgpath, f'gen_sample_regular_{e}.png'), nrow=nrow)
 
             # Newly generated
             # save_image(samples[-1], os.path.join(imgpath, f'sample_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
-            # save_video(samples, imgpath, nrow, f'sample_{e}.mp4')
+            save_video(gen_all_images, imgpath, nrow, f'sample_{e}.mp4')
             # save_gif(samples, imgpath, nrow, f'sample_{e}.gif')
 
             # Save checkpoint
