@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=blur_residual_test
+#SBATCH --job-name=blur_bansal
 #SBATCH --time=01:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
@@ -69,6 +69,6 @@ save_folder="results_cifar10/"
 #                                                 --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
 #                                                 --load_checkpoint --cluster --add_noise --skip_ema
 
-python  /var/scratch/mft520/MixedDiffusion/colddiff.py --time_steps $timesteps --blur_routine $blur_routine --sampling_routine $sample_routine --data_path $data_path --save_folder $save_folder
+python  /var/scratch/mft520/MixedDiffusion/colddiff.py --time_steps $timesteps --blur_routine $blur_routine --sampling_routine $sample_routine --data_path $data_path --save_folder $save_folder --discrete
 
 echo "Script finished"

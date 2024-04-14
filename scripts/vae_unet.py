@@ -232,6 +232,7 @@ class VAEEncoder(nn.Module):
         self.dense_mean = torch.nn.Linear(self.ch*ch_mult[-1]*curr_res*curr_res, latent_dim)
         self.dense_logvar = torch.nn.Linear(self.ch*ch_mult[-1]*curr_res*curr_res, latent_dim)
     
+
     def forward(self, x):
         assert x.shape[2] == x.shape[3] == self.image_size
 
@@ -267,6 +268,7 @@ class BansalUnet(nn.Module):
         self.num_res_blocks = num_res_blocks
         self.image_size = image_size
         self.channels = channels
+        #self.vae_encoder = VAEEncoder(ch=ch, out_ch=out_ch, ch_mult=ch_mult, num_res_blocks=num_res_blocks, latent_dim=latent_dim, image_size=image_size, channels=channels)
 
         # timestep embedding
         self.temb = nn.Module()
@@ -378,6 +380,22 @@ class BansalUnet(nn.Module):
                 hs.append(self.down[i_level].downsample(hs[-1]))
 
         # middle
+
+        # VAE Injection
+        # Print dimensions
+        print("Features shape:", hs[-1].shape)
+        print("Time embedding shape:", temb.shape)
+
+        # I'll have to find a way to know the latent dimension and initialize the VAE encoder accordingly
+        # Do we need a scaling factor for the latent dimension? Is this something that can be learned by the VAE?
+        e = self.vae_encoder(hs[-1], temb)
+        z_sample = torch.randn_like(e[0]) * torch.exp(0.5*e[1]) + e[0]
+        print("VAE output shape:", z_sample.shape)
+
+        # Add VAE output to last feature map
+        hs[-1] = hs[-1] + z_sample
+
+        # U-Net Bottleneck
         h = hs[-1]
         h = self.mid.block_1(h, temb)
         h = self.mid.attn_1(h)

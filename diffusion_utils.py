@@ -677,7 +677,8 @@ class Sampler:
 
         model.eval()
 
-        t=self.timesteps-1
+        t=self.timesteps
+        #t_proxy = t - 1
 
         if not hasattr(self.degradation.blur, 'gaussian_kernels'):
             self.degradation.blur.get_kernels()
@@ -697,16 +698,25 @@ class Sampler:
                     if i == (self.timesteps-1):
                         img = torch.mean(img, [2, 3], keepdim=True)
                         img = img.expand(temp.shape[0], temp.shape[1], temp.shape[2], temp.shape[3])
-            # t_tensor = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-2 to account for 0 indexing and the resulting t+1 in the degradation operation
-            # img = self.degradation.degrade(img, t_tensor) # Adaption due to explanation below (0 indexing)
+            
+            #t_tensor = torch.full((batch_size,), t_proxy, dtype=torch.long).to(self.device) # t-2 to account for 0 indexing and the resulting t+1 in the degradation operation
+            #img_proxy = self.degradation.degrade(img, t_tensor) # Adaption due to explanation below (0 indexing)
+            
             xt = img
+            #xt_proxy = img_proxy
+
+            #assert xt == xt_proxy, 'x_t and x_t_proxy do not match'
 
         img = xt
+        #img_proxy = xt_proxy
 
         direct_recons = None
         while(t):
-            step = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
+            step = torch.full((batch_size,), t-1, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
+            #step_proxy = torch.full((batch_size,), t_proxy, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
+            
             x = model(img, step)
+            #x_proxy = model(img_proxy, step_proxy)
 
             if direct_recons == None:
                 direct_recons = x
@@ -719,7 +729,8 @@ class Sampler:
             # For now, we use t-2 in the initial step definition, but this is not the most elegant and robust solution, we just check if the loop still works like this. 
 
             x_times = x
-            # x_times = self.degradation.degrade(x_times, step) 
+            #x_times_proxy = x_proxy
+            #x_times_proxy = self.degradation.degrade(x_times_proxy, step) 
             for i in range(t):
                 with torch.no_grad():
                     x_times = self.degradation.blur.gaussian_kernels[i](x_times)
@@ -729,7 +740,8 @@ class Sampler:
 
 
             x_times_sub_1 = x
-            # x_times_sub_1 = self.degradation.degrade(x_times, step - 1)
+            #x_times_sub_1_proxy = x_proxy
+            #x_times_sub_1_proxy = self.degradation.degrade(x_times_sub_1_proxy, step - 1)
             for i in range(t - 1):
                 with torch.no_grad():
                     x_times_sub_1 = self.degradation.blur.gaussian_kernels[i](x_times_sub_1)
