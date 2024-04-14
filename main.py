@@ -198,7 +198,6 @@ def main(**kwargs):
                         out_ch=channels,
                         ch=kwargs['dim'],
                         ch_mult=(1,2,2,2),
-                        dim_mults = (1, 2, 4, 8),
                         num_res_blocks=2,
                         attn_resolutions=(16,),
                         dropout=0.1)
