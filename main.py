@@ -18,8 +18,8 @@ from torchvision.utils import save_image
 
 
 from unet import UNet
-#from mnist_unet import MNISTUnet
-from scripts.karras_unet import KarrasUnet
+from mnist_unet import MNISTUnet
+#from scripts.karras_unet import KarrasUnet
 from scripts.bansal_unet import BansalUnet
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
 from utils import create_dirs, save_video, save_gif, MyCelebA
@@ -175,12 +175,13 @@ def main(**kwargs):
     #             dim_max =  kwargs['dim']*2**kwargs['num_downsamples'],
     #             dropout = 0.1)
     
-    # unet = MNISTUnet(timesteps=kwargs['timesteps'],
-    #                  in_channels=channels,
-    #                  out_channels=channels,
-    #                  time_embedding_dim=64,
-    #                  dim_mults=[2,4],
-    #                  base_dim=kwargs['dim'])
+    if kwargs['dataset'] == 'mnist':
+        unet = MNISTUnet(timesteps=kwargs['timesteps'],
+                        in_channels=channels,
+                        out_channels=channels,
+                        time_embedding_dim=64,
+                        dim_mults=[2,4],
+                        base_dim=kwargs['dim'])
 
     # unet = KarrasUnet(image_size=imsize, 
     #                 channels=channels, 
@@ -191,14 +192,16 @@ def main(**kwargs):
     #                 fourier_dim=16,
     #                 dropout = 0.1)
     
-    unet = BansalUnet(image_size=imsize,
-                    channels=channels,
-                    out_ch=channels,
-                    ch=kwargs['dim'],
-                    ch_mult=(1,2,2,2),
-                    num_res_blocks=2,
-                    attn_resolutions=(16,),
-                    dropout=0.1)
+    else:
+        unet = BansalUnet(image_size=imsize,
+                        channels=channels,
+                        out_ch=channels,
+                        ch=kwargs['dim'],
+                        ch_mult=(1,2,2,2),
+                        dim_mults = (1, 2, 4, 8),
+                        num_res_blocks=2,
+                        attn_resolutions=(16,),
+                        dropout=0.1)
 
 
     # # Enable Multi-GPU training
