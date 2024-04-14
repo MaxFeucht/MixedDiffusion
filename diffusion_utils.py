@@ -466,12 +466,14 @@ class Trainer:
         pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
 
         # Select approporiate loss
-        if self.deterministic: 
-            loss = self.loss.mse_loss(target, pred)
-            #loss = self.loss.cold_loss(target, pred, t)
-            #loss = self.loss.darras_loss(target, pred, t)
-        else:
-            loss = self.loss.mse_loss(target, pred)
+        # if self.vae: 
+        #     reconstruction = self.loss.mse_loss(target, pred)
+        #     kl_div = self.model.kl_div
+        #     loss = reconstruction + kl_div
+        # else:
+        #     loss = self.loss.mse_loss(target, pred)
+
+        loss = self.loss.mse_loss(target, pred)
         
         # if save:
         #     save_image(x_t[-1], os.path.join('./imgs/cifar10_blur/test', f'test.png'), nrow=6) #int(math.sqrt(kwargs['n_samples']))
@@ -684,6 +686,7 @@ class Sampler:
             self.degradation.blur.get_kernels()
         
         # Decide whether to generate x_T or use the degraded input image (reconstruction)
+        temp = img
         if generate:
             # Sample x_T either every time new or once and keep it fixed 
             if self.x_T is None:
@@ -691,7 +694,6 @@ class Sampler:
             else:
                 xt = self.x_T
         else:
-            temp = img
             for i in range(t):
                 with torch.no_grad():
                     img = self.degradation.blur.gaussian_kernels[i](img)

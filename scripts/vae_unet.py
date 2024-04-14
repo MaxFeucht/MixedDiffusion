@@ -257,7 +257,7 @@ class VAEEncoder(nn.Module):
         return mean, logvar
     
 
-class BansalUnet(nn.Module):
+class VAE_UNet(nn.Module):
     def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks,
                  attn_resolutions, dropout=0.0, resamp_with_conv=True, channels,
                  image_size):
@@ -388,9 +388,12 @@ class BansalUnet(nn.Module):
 
         # I'll have to find a way to know the latent dimension and initialize the VAE encoder accordingly
         # Do we need a scaling factor for the latent dimension? Is this something that can be learned by the VAE?
-        e = self.vae_encoder(hs[-1], temb)
-        z_sample = torch.randn_like(e[0]) * torch.exp(0.5*e[1]) + e[0]
+        mu, logvar = self.vae_encoder(hs[-1], temb)
+        z_sample = torch.randn_like(mu) * torch.exp(0.5*logvar) + mu
         print("VAE output shape:", z_sample.shape)
+
+        # KL Divergence for VAE Encoder
+        self.kl_div = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar).sum(1).mean()
 
         # Add VAE output to last feature map
         hs[-1] = hs[-1] + z_sample
