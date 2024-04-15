@@ -191,56 +191,56 @@ class AttnBlock(nn.Module):
 
 class VAEEncoder(nn.Module):
 
-    def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks, latent_dim, image_size, channels):
+    def __init__(self, *, dim, dim_mult=(1,2,2,2), latent_dim, image_size, channels, temb_channels, dropout):
         super().__init__()
-        self.ch = ch
-        self.num_resolutions = len(ch_mult)
-        self.num_res_blocks = num_res_blocks
+        self.dim = dim
+        self.num_resolutions = len(dim_mult)
         self.image_size = image_size
         self.channels = channels
 
         # downsampling
-        self.conv_in = torch.nn.Conv2d(channels,
-                                       self.ch,
+        self.conv_in = torch.nn.Conv2d(channels*2, # *2 for concatenation of two images
+                                       self.dim,
                                        kernel_size=3,
                                        stride=1,
                                        padding=1)
 
         curr_res = image_size
-        in_ch_mult = (1,)+ch_mult
+        in_dim_mult = (1,)+dim_mult
         self.down = nn.ModuleList()
         for i_level in range(self.num_resolutions):
-            block = nn.ModuleList()
-            for i_block in range(self.num_res_blocks):
-                block.append(ResnetBlock(channels=self.ch*in_ch_mult[i_level]))
-            down = nn.Module()
-            down.block = block
+            downblock = nn.Module()
+            downblock.resblock = ResnetBlock(channels=self.dim*in_dim_mult[i_level], 
+                                             out_channels=self.dim*dim_mult[i_level],
+                                             dropout=dropout, temb_channels=temb_channels)
             if i_level != self.num_resolutions-1:
-                down.downsample = Downsample(self.ch*in_ch_mult[i_level], resamp_with_conv=True)
+                downblock.downsample = Downsample(self.dim*dim_mult[i_level], with_conv=True)
                 curr_res = curr_res // 2
-            self.down.append(down)
+            self.down.append(downblock)
 
         # final block
-        self.norm_out = Normalize(self.ch*ch_mult[-1])
-        self.conv_out = torch.nn.Conv2d(self.ch*ch_mult[-1],
-                                        out_ch,
+        self.norm_out = Normalize(self.dim*dim_mult[i_level])
+        self.conv_out = torch.nn.Conv2d(self.dim*dim_mult[i_level],
+                                        self.dim*dim_mult[-1],
                                         kernel_size=3,
                                         stride=1,
                                         padding=1)
 
         # dense layers for mean and logvar
-        self.dense_mean = torch.nn.Linear(self.ch*ch_mult[-1]*curr_res*curr_res, latent_dim)
-        self.dense_logvar = torch.nn.Linear(self.ch*ch_mult[-1]*curr_res*curr_res, latent_dim)
+        self.dense_mean = torch.nn.Linear(self.dim*dim_mult[-1]*curr_res*curr_res, latent_dim)
+        self.dense_logvar = torch.nn.Linear(self.dim*dim_mult[-1]*curr_res*curr_res, latent_dim)
     
 
-    def forward(self, x):
-        assert x.shape[2] == x.shape[3] == self.image_size
+    def forward(self, xt, xtm1, temb):
+        assert xt.shape[2] == xt.shape[3] == self.image_size
+
+        # Combine the two images
+        x = torch.cat([xt, xtm1], dim=1)
 
         # downsampling
         h = self.conv_in(x)
         for i_level in range(self.num_resolutions):
-            for i_block in range(self.num_res_blocks):
-                h = self.down[i_level].block[i_block](h)
+            h = self.down[i_level].resblock(h, temb)
             if i_level != self.num_resolutions-1:
                 h = self.down[i_level].downsample(h)
 
@@ -257,8 +257,8 @@ class VAEEncoder(nn.Module):
         return mean, logvar
     
 
-class VAE_UNet(nn.Module):
-    def __init__(self, *, ch, out_ch, ch_mult=(1,2,4,8), num_res_blocks,
+class VAEUNet(nn.Module):
+    def __init__(self, *, ch, out_ch, ch_mult=(1,2,2,2), num_res_blocks,
                  attn_resolutions, dropout=0.0, resamp_with_conv=True, channels,
                  image_size):
         super().__init__()
@@ -312,8 +312,14 @@ class VAE_UNet(nn.Module):
         # middle
 
         # VAE Encoder
-        self.encoder = VAEEncoder(ch=ch, latent_dim=curr_res*curr_res, out_ch=ch*ch_mult[-1], ch_mult=ch_mult, num_res_blocks=num_res_blocks, image_size=image_size, channels=channels)
-
+        # print(f"VAE Encoder latent dimension: {curr_res} x {curr_res}")
+        self.vae_encoder = VAEEncoder(dim=ch, 
+                                      dim_mult=ch_mult, 
+                                      latent_dim=curr_res*curr_res, 
+                                      image_size=image_size, 
+                                      channels=channels, 
+                                      temb_channels=self.temb_ch,
+                                      dropout=dropout)
         # Bottleneck
         self.mid = nn.Module()
         self.mid.block_1 = ResnetBlock(channels=block_in,
@@ -360,8 +366,8 @@ class VAE_UNet(nn.Module):
                                         padding=1)
 
 
-    def forward(self, x, t):
-        assert x.shape[2] == x.shape[3] == self.image_size
+    def forward(self, xt, t, xtm1 = None):
+        assert xt.shape[2] == xt.shape[3] == self.image_size
 
         # timestep embedding
         temb = get_timestep_embedding(t, self.ch)
@@ -369,11 +375,8 @@ class VAE_UNet(nn.Module):
         temb = nonlinearity(temb)
         temb = self.temb.dense[1](temb)
 
-        # print(t)
-        # print(temb)
-
         # downsampling
-        hs = [self.conv_in(x)]
+        hs = [self.conv_in(xt)]
         for i_level in range(self.num_resolutions):
             for i_block in range(self.num_res_blocks):
                 h = self.down[i_level].block[i_block](hs[-1], temb)
@@ -386,23 +389,30 @@ class VAE_UNet(nn.Module):
         # middle
 
         # VAE Injection
-        # Print dimensions
-        print("Features shape:", hs[-1].shape)
-        print("Time embedding shape:", temb.shape)
 
         # I'll have to find a way to know the latent dimension and initialize the VAE encoder accordingly
         # Do we need a scaling factor for the latent dimension? Is this something that can be learned by the VAE?
-        mu, logvar = self.vae_encoder(hs[-1], temb)
+        
+        # In Training mode, we have xtm1
+        if xtm1 is not None:
 
-        bs, depth, res = hs[-1].shape[0], hs[-1].shape[1], hs[-1].shape[2]
-        mu = mu.view(bs, 1, res, res).expand(-1, depth, -1, -1)
-        logvar = logvar.view(bs, 1, res, res).expand(-1, depth, -1, -1)
+            # VAE Encoder
+            mu, logvar = self.vae_encoder(xt, xtm1, temb)
 
-        z_sample = torch.randn_like(mu) * torch.exp(0.5*logvar) + mu
-        print("VAE output shape:", z_sample.shape)
+            # Bring mu and logvar to the same shape as the last feature map
+            bs, depth, res = hs[-1].shape[0], hs[-1].shape[1], hs[-1].shape[2]
+            mu = mu.view(bs, 1, res, res).expand(-1, depth, -1, -1)
+            logvar = logvar.view(bs, 1, res, res).expand(-1, depth, -1, -1)
 
-        # KL Divergence for VAE Encoder
-        self.kl_div = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar).sum(1).mean()
+            # KL Divergence for VAE Encoder
+            self.kl_div = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar).sum(1).mean()
+    
+            # Reparameterization trick
+            z_sample = torch.randn_like(mu) * torch.exp(0.5*logvar) + mu
+        
+        # In Generation mode, we don't have xtm1
+        else:
+            z_sample = torch.randn_like(hs[-1])
 
         # Add VAE output to last feature map
         hs[-1] = hs[-1] + z_sample

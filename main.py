@@ -21,6 +21,7 @@ from unet import UNet
 from mnist_unet import MNISTUnet
 #from scripts.karras_unet import KarrasUnet
 from scripts.bansal_unet import BansalUnet
+from scripts.vae_unet import VAEUNet
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
 from utils import create_dirs, save_video, save_gif, MyCelebA
 
@@ -175,13 +176,13 @@ def main(**kwargs):
     #             dim_max =  kwargs['dim']*2**kwargs['num_downsamples'],
     #             dropout = 0.1)
     
-    if kwargs['dataset'] == 'mnist':
-        unet = MNISTUnet(timesteps=kwargs['timesteps'],
-                        in_channels=channels,
-                        out_channels=channels,
-                        time_embedding_dim=64,
-                        dim_mults=[2,4],
-                        base_dim=kwargs['dim'])
+    # if kwargs['dataset'] == 'mnist':
+    #     unet = MNISTUnet(timesteps=kwargs['timesteps'],
+    #                     in_channels=channels,
+    #                     out_channels=channels,
+    #                     time_embedding_dim=64,
+    #                     dim_mults=[2,4],
+    #                     base_dim=kwargs['dim'])
 
     # unet = KarrasUnet(image_size=imsize, 
     #                 channels=channels, 
@@ -192,15 +193,34 @@ def main(**kwargs):
     #                 fourier_dim=16,
     #                 dropout = 0.1)
     
-    else:
-        unet = BansalUnet(image_size=imsize,
+    # else:
+        # unet = BansalUnet(image_size=imsize,
+        #                 channels=channels,
+        #                 out_ch=channels,
+        #                 ch=kwargs['dim'],
+        #                 ch_mult= (1,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
+        #                 num_res_blocks=2,
+        #                 attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
+        #                 dropout=0.1)
+        
+    if kwargs['vae']:
+        unet = VAEUNet(image_size=imsize,
                         channels=channels,
                         out_ch=channels,
                         ch=kwargs['dim'],
-                        ch_mult=(1,2,2,2),
+                        ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
                         num_res_blocks=2,
-                        attn_resolutions=(16,),
+                        attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
                         dropout=0.1)
+    else:
+        unet = BansalUnet(image_size=imsize,
+                channels=channels,
+                out_ch=channels,
+                ch=kwargs['dim'],
+                ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
+                num_res_blocks=2,
+                attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
+                dropout=0.1)
 
 
     # # Enable Multi-GPU training
@@ -259,31 +279,30 @@ def main(**kwargs):
         
             # Sample
             nrow = 6
-            #try:
-            og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
-            xt, direct_recons, all_images = sampler.sample_cold_orig(model = trainer.model, img = og_img, batch_size = kwargs['n_samples'])
-            gen_xt, gen_direct_recons, gen_all_images = sampler.sample_cold_orig(model = trainer.model, img = og_img, batch_size = kwargs['n_samples'], generate=True)
-            #samples, x_T = sampler.sample(trainer.model, kwargs['n_samples'])
-            #print("Sampling unpacking successful")
-            # except Exception as e:
-            #     # smpl = sampler.sample(trainer.model, kwargs['n_samples'])
-            #     # samples = smpl[0]
-            #     # x_T = smpl[1]
-            #     print("Sampling unpacking failed, trying again, Exception: ", e)
 
-            # Training Process conditional generation
-            save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
-            save_image(xt, os.path.join(imgpath, f'xt_{e}.png'), nrow=nrow)
-            save_image(all_images, os.path.join(imgpath, f'sample_regular_{e}.png'), nrow=nrow)
-            save_image(direct_recons, os.path.join(imgpath, f'direct_recon_{e}.png'), nrow=nrow)
+            if kwargs['degradation'] == 'noise': # Noise Sampling
+                samples, xt = sampler.sample(trainer.model, kwargs['n_samples'])
+                
+                save_image(samples[-1], os.path.join(imgpath, f'sample_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
+                save_video(samples, imgpath, nrow, f'sample_{e}.mp4')
+            
+            else: # Cold Sampling
+                og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
+                _, xt, direct_recons, all_images = sampler.sample_cold_orig(model = trainer.model, img = og_img, batch_size = kwargs['n_samples'])
+                gen_samples, gen_xt, _, gen_all_images = sampler.sample_cold_orig(model = trainer.model, img = og_img, batch_size = kwargs['n_samples'], generate=True, return_trajectory=True)
+                
+                # Training Process conditional generation
+                save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
+                save_image(xt, os.path.join(imgpath, f'xt_{e}.png'), nrow=nrow)
+                save_image(all_images, os.path.join(imgpath, f'sample_regular_{e}.png'), nrow=nrow)
+                save_image(direct_recons, os.path.join(imgpath, f'direct_recon_{e}.png'), nrow=nrow)
 
-            # Training Process unconditional generation
-            save_image(gen_xt, os.path.join(imgpath, f'gen_xt_{e}.png'), nrow=nrow)
-            save_image(gen_all_images, os.path.join(imgpath, f'gen_sample_regular_{e}.png'), nrow=nrow)
+                # Training Process unconditional generation
+                save_image(gen_xt, os.path.join(imgpath, f'gen_xt_{e}.png'), nrow=nrow)
+                save_image(gen_all_images, os.path.join(imgpath, f'gen_sample_regular_{e}.png'), nrow=nrow)
+                save_video(gen_samples, imgpath, nrow, f'sample_{e}.mp4')
 
-            # Newly generated
-            # save_image(samples[-1], os.path.join(imgpath, f'sample_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
-            save_video(gen_all_images, imgpath, nrow, f'sample_{e}.mp4')
+
             # save_gif(samples, imgpath, nrow, f'sample_{e}.gif')
 
             # Save checkpoint
@@ -304,15 +323,15 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=40, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=10, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
     parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
-    parser.add_argument('--degradation', '--deg', type=str, default='blur', help='Degradation method')
+    parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
-    parser.add_argument('--dataset', type=str, default='cifar10', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
     parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
@@ -327,13 +346,18 @@ if __name__ == "__main__":
     parser.add_argument('--kernel_std', type=float, default=0.1, help='Number of training steps')
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
     parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
-
+    parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
+    
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the deterministic sampling')
 
     args = parser.parse_args()
 
     args.num_downsamples = 2 if args.dataset == 'mnist' else 3
     args.device = 'cuda' if torch.cuda.is_available() else 'mps'
+
+    if args.vae:
+        print("Using VAE Noise Injections")
+        assert not args.add_noise, "Cannot use VAE and add noise at the same time"
 
     if not args.cluster:
         print("Running locally, Cluster =", args.cluster)
@@ -343,7 +367,7 @@ if __name__ == "__main__":
     
     if args.test_run:
         print("Running Test Run with only one iter per epoch")
-
+    
     print("Device: ", args.device)
     print("Arguments: ", args)
 

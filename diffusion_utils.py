@@ -182,7 +182,7 @@ class Degradation:
     
 
 
-    def blacking(self, x_0, t):
+    def blacking(self, x_0, t, factor = 0.95, mode = 'linear'):
         """
         Function to fade an image x to black at time t.
         
@@ -190,7 +190,20 @@ class Degradation:
         :param int t: The time step
         :return torch.Tensor: The degraded image at time t
         """
-        multiplier = (1 - (t+1) / self.timesteps).reshape(-1, 1, 1, 1)  # +1 bc of zero indexing
+        # if t == self.timesteps-1:
+        #     multiplier = 0.0
+        # else:
+        #     multiplier = factor ** (t)  # +1 bc of zero indexing
+        
+        if mode == 'linear':
+            multiplier = (1 - (t) / (self.timesteps-1)).reshape(-1, 1, 1, 1)  # +1 bc of zero indexing
+        
+        elif mode == 'exponential':
+            if t == self.timesteps-1:
+                multiplier = 0.0
+            else:
+                multiplier = factor ** (t)  # +1 bc of zero indexing
+
         x_t = multiplier * x_0 
         return x_t
     
@@ -409,13 +422,14 @@ class Loss:
 
 class Trainer:
     
-    def __init__(self, model, lr, timesteps, prediction, degradation, noise_schedule, **kwargs):
+    def __init__(self, model, lr, timesteps, prediction, degradation, noise_schedule, vae, **kwargs):
 
         self.device = kwargs['device']
         self.model = model.to(self.device)
         self.prediction = prediction
         self.timesteps = timesteps
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
+        self.vae = vae
 
         general_kwargs = {'timesteps': timesteps, 
                           'prediction': prediction,
@@ -449,6 +463,7 @@ class Trainer:
         # Degrade and obtain residual
         if self.deterministic:
             x_t = self.degrader.degrade(x_0, t)
+            x_tm1 = self.degrader.degrade(x_0, t-1)
             residual = x_0 - x_t
         else:
             noise = torch.randn_like(x_0, device=self.device) # Important: Noise to degrade with must be the same as the noise that should be predicted
@@ -465,24 +480,19 @@ class Trainer:
         else:
             raise ValueError('Invalid prediction type')
         
-        # Get Model prediction with correct output
-        model_pred = self.model(x_t, t)
-        pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
+        # Get Model prediction with correct output and select appropriate loss
+        if self.vae: 
+            model_pred = self.model(x_t, t, x_tm1) # VAE Model needs x_tm1 for prediction. Important: x_tm1 is needed for VAE to run in training mode
+            pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Same for both VAE and non-VAE       
+            reconstruction = self.loss.mse_loss(target, pred)
+            kl_div = self.model.kl_div
+            print(f"Reconstruction: {reconstruction}, KL-Divergence: {kl_div}")
+            loss = reconstruction + kl_div
+        else:
+            model_pred = self.model(x_t, t)
+            pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
+            loss = self.loss.mse_loss(target, pred)
 
-        # Select approporiate loss
-        # if self.vae: 
-        #     reconstruction = self.loss.mse_loss(target, pred)
-        #     kl_div = self.model.kl_div
-        #     loss = reconstruction + kl_div
-        # else:
-        #     loss = self.loss.mse_loss(target, pred)
-
-        loss = self.loss.mse_loss(target, pred)
-        
-        # if save:
-        #     save_image(x_t[-1], os.path.join('./imgs/cifar10_blur/test', f'test.png'), nrow=6) #int(math.sqrt(kwargs['n_samples']))
-
-    
         return loss
     
     
@@ -525,19 +535,17 @@ class Trainer:
     
 class Sampler:
     
-    def __init__(self, timesteps, prediction, noise_schedule, degradation, fixed_seed = True, **kwargs):
+    def __init__(self, timesteps, prediction, noise_schedule, degradation, **kwargs):
         self.degradation = Degradation(timesteps=timesteps, degradation=degradation, prediction=prediction, noise_schedule=noise_schedule, **kwargs)
         self.reconstruction = Reconstruction(timesteps=timesteps, prediction=prediction, degradation = degradation, noise_schedule=noise_schedule, **kwargs)
         self.prediction = prediction
         self.timesteps = timesteps
         self.device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
-        self.fixed_seed = fixed_seed
+        self.black = True if degradation in ['fadeblack', 'fadeblack_blur'] else False
         self.gmm = None
         self.break_symmetry = kwargs['add_noise']
-
-        if fixed_seed:
-            torch.manual_seed(torch.randint(100000, (1,)).item())
+        self.vae = kwargs['vae']
         
 
     def fit_gmm(self, dataloader, clusters = 1, sample = False):
@@ -577,7 +585,7 @@ class Sampler:
         :param int image_size: The size of the images in the samples
         """
 
-        if self.deterministic:
+        if self.deterministic and not self.black:
 
             # Sample x_T from GMM
             if self.gmm is None:
@@ -596,7 +604,16 @@ class Sampler:
             if self.break_symmetry:
                 x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
         
-        else:
+        elif self.black:
+            # Sample x_T from R0
+            x_t = torch.zeros((batch_size, channels, image_size, image_size), device=self.device) 
+            
+            # Noise injection for breaking symmetry
+            noise_level = 0.001
+            if self.break_symmetry:
+                x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
+        
+        elif not self.deterministic:
             # Sample x_T from random normal distribution
             x_t = torch.randn((batch_size, channels, image_size, image_size), device=self.device)
         
@@ -679,12 +696,11 @@ class Sampler:
             return x_t.unsqueeze(0), ret_x_T
     
     @torch.no_grad()
-    def sample_cold_orig(self, model, batch_size = 16, img=None, generate=False):
+    def sample_cold_orig(self, model, batch_size = 16, img=None, generate=False, return_trajectory = True):
 
         model.eval()
 
         t=self.timesteps
-        #t_proxy = t - 1
 
         if not hasattr(self.degradation.blur, 'gaussian_kernels'):
             self.degradation.blur.get_kernels()
@@ -709,34 +725,23 @@ class Sampler:
             img = self.degradation.degrade(img, t_tensor) # Adaption due to explanation below (0 indexing)
             
             xt = img
-            #xt_proxy = img_proxy
 
-            #assert xt == xt_proxy, 'x_t and x_t_proxy do not match'
 
         img = xt
-        #img_proxy = xt_proxy
 
         direct_recons = None
         #while(t):
+        samples = []
+        samples.append(xt) 
         for t_step in reversed(range(t)):
             step = torch.full((batch_size,), t_step, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
-            #step_proxy = torch.full((batch_size,), t_proxy, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
             
             x = model(img, step)
-            #x_proxy = model(img_proxy, step_proxy)
 
             if direct_recons == None:
                 direct_recons = x
 
-            # On the t-1 / t-2 matter in the next lines: Figure out a better solution. 
-            # Right now, the degradation operation adds a +1 to the t_max, to account for the two-fold 0 indexing that is happening during training: 
-            # Once in the operation that picks the t (which has 0 indexing) and once the loop over range() which also has 0 indexing.
-            # In Sampling, we only have no 0 indexing because we're using a while loop, so we subtract 1 from the t to get at the beginning of the loop, 
-            # but need another subtraction to get to the correct index. However, we cannot use t-2, as then the while loop breaks prematurely. 
-            # For now, we use t-2 in the initial step definition, but this is not the most elegant and robust solution, we just check if the loop still works like this. 
-
             x_times = x
-            #x_times_proxy = x_proxy
             x_times = self.degradation.degrade(x_times, step) 
             # for i in range(t_step): #t+1 to account for 0 indexing of range
             #     with torch.no_grad():
@@ -747,7 +752,6 @@ class Sampler:
 
 
             x_times_sub_1 = x
-            #x_times_sub_1_proxy = x_proxy
             x_times_sub_1 = self.degradation.degrade(x_times_sub_1, step - 1)
             # for i in range(t_step-1): # actually t-1 but t because of 0 indexing
             #     with torch.no_grad():
@@ -755,16 +759,21 @@ class Sampler:
 
             x = img - x_times + x_times_sub_1
             img = x
-            #t = t - 1
+            samples.append(x)
+            #t = t -1
         
         model.train()
 
-        return xt, direct_recons, img
+        if return_trajectory:
+            return samples, xt, direct_recons, img
+        else:
+            return None, xt, direct_recons, img
 
 
-    def sample(self, model, batch_size, return_trajectory = True):
+
+    def sample(self, model, batch_size, return_trajectory = True, img=None, generate=False):
         if self.deterministic:
-            return self.sample_cold(model, batch_size, return_trajectory)
+            return self.sample_cold_orig(model, batch_size, img, generate, return_trajectory)
         else:
             return self.sample_ddpm(model, batch_size, return_trajectory)
         
