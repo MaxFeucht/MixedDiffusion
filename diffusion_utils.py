@@ -486,7 +486,6 @@ class Trainer:
             pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Same for both VAE and non-VAE       
             reconstruction = self.loss.mse_loss(target, pred)
             kl_div = self.model.kl_div
-            print(f"Reconstruction: {reconstruction}, KL-Divergence: {kl_div}")
             loss = reconstruction + kl_div
         else:
             model_pred = self.model(x_t, t)
