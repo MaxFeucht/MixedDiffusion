@@ -714,7 +714,7 @@ class Sampler:
 
         direct_recons = None
         #while(t):
-        for t_step in range(t, 0, -1):
+        for t_step in reversed(range(0,t)):
             step = torch.full((batch_size,), t_step, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
             #step_proxy = torch.full((batch_size,), t_proxy, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
             
