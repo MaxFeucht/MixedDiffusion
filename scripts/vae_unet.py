@@ -268,7 +268,6 @@ class VAE_UNet(nn.Module):
         self.num_res_blocks = num_res_blocks
         self.image_size = image_size
         self.channels = channels
-        #self.vae_encoder = VAEEncoder(ch=ch, out_ch=out_ch, ch_mult=ch_mult, num_res_blocks=num_res_blocks, latent_dim=latent_dim, image_size=image_size, channels=channels)
 
         # timestep embedding
         self.temb = nn.Module()
@@ -311,6 +310,11 @@ class VAE_UNet(nn.Module):
             self.down.append(down)
 
         # middle
+
+        # VAE Encoder
+        self.encoder = VAEEncoder(ch=ch, latent_dim=curr_res*curr_res, out_ch=ch*ch_mult[-1], ch_mult=ch_mult, num_res_blocks=num_res_blocks, image_size=image_size, channels=channels)
+
+        # Bottleneck
         self.mid = nn.Module()
         self.mid.block_1 = ResnetBlock(channels=block_in,
                                        out_channels=block_in,
@@ -389,6 +393,11 @@ class VAE_UNet(nn.Module):
         # I'll have to find a way to know the latent dimension and initialize the VAE encoder accordingly
         # Do we need a scaling factor for the latent dimension? Is this something that can be learned by the VAE?
         mu, logvar = self.vae_encoder(hs[-1], temb)
+
+        bs, depth, res = hs[-1].shape[0], hs[-1].shape[1], hs[-1].shape[2]
+        mu = mu.view(bs, 1, res, res).expand(-1, depth, -1, -1)
+        logvar = logvar.view(bs, 1, res, res).expand(-1, depth, -1, -1)
+
         z_sample = torch.randn_like(mu) * torch.exp(0.5*logvar) + mu
         print("VAE output shape:", z_sample.shape)
 
