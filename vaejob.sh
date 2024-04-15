@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=blur_residual_test
-#SBATCH --time=10:00:00
+#SBATCH --job-name=blur_cifar
+#SBATCH --time=12:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
@@ -45,13 +45,13 @@ cd /var/scratch/mft520/experiments
 
 lr=2e-5
 batch_size=128
-timesteps=200
+timesteps=300
 dim=128
 epochs=1000
 prediction="x0"
-degradation="blur"
+degradation="fadeblack_blur"
 noise_schedule="cosine"
-dataset="mnist"
+dataset="cifar10"
 sample_interval=1
 n_samples=72
 model_ema_steps=10
@@ -65,5 +65,5 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --num_train_steps $num_train_steps \
                                                 --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
-                                                --load_checkpoint --cluster --add_noise --skip_ema
+                                                --cluster --vae #--load_checkpoint
 echo "Script finished"
