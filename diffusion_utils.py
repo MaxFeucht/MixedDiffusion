@@ -588,7 +588,7 @@ class Sampler:
                     
             # Noise injection for breaking symmetry
             # Original code: noise_levels = [0.001, 0.002, 0.003, 0.004] # THIS GIVES US A HINT THAT THE NOISE LEVELS HAVE TO BE FINELY TUNED
-            noise_level = 0.002
+            noise_level = 0.001
             if self.break_symmetry:
                 x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
         
@@ -713,8 +713,9 @@ class Sampler:
         #img_proxy = xt_proxy
 
         direct_recons = None
-        while(t):
-            step = torch.full((batch_size,), t-1, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
+        #while(t):
+        for t_step in range(t, 0, -1):
+            step = torch.full((batch_size,), t_step, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
             #step_proxy = torch.full((batch_size,), t_proxy, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
             
             x = model(img, step)
@@ -733,7 +734,7 @@ class Sampler:
             x_times = x
             #x_times_proxy = x_proxy
             #x_times_proxy = self.degradation.degrade(x_times_proxy, step) 
-            for i in range(t):
+            for i in range(t_step+1): #t+1 to account for 0 indexing of range
                 with torch.no_grad():
                     x_times = self.degradation.blur.gaussian_kernels[i](x_times)
                     if i == (self.timesteps-1):
@@ -744,13 +745,13 @@ class Sampler:
             x_times_sub_1 = x
             #x_times_sub_1_proxy = x_proxy
             #x_times_sub_1_proxy = self.degradation.degrade(x_times_sub_1_proxy, step - 1)
-            for i in range(t - 1):
+            for i in range(t_step): # actually t-1 but t because of 0 indexing
                 with torch.no_grad():
                     x_times_sub_1 = self.degradation.blur.gaussian_kernels[i](x_times_sub_1)
 
             x = img - x_times + x_times_sub_1
             img = x
-            t = t - 1
+            #t = t - 1
         
         model.train()
 
