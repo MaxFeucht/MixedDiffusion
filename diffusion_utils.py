@@ -509,7 +509,7 @@ class Trainer:
         if self.vae: 
             model_pred = self.model(x_t, t, x_tm1) # VAE Model needs x_tm1 for prediction. Important: x_tm1 is needed for VAE to run in training mode
             pred = (x_t + model_pred) if self.prediction == 'xtm1' else model_pred # According to Risannen, the model predicts the residual
-            reconstruction = self.loss.mse_loss(target, pred) * 10
+            reconstruction = self.loss.mse_loss(target, pred)
             kl_div = self.model.kl_div
             loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div)
             return loss, reconstruction, kl_div

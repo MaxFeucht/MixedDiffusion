@@ -364,7 +364,7 @@ if __name__ == "__main__":
     parser.add_argument('--kernel_std', type=float, default=0.1, help='Number of training steps')
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
     parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
-    parser.add_argument('--vae_alpha', type=float, default = 0.8, help='Trade-off parameter for normality of VAE noise injections')
+    parser.add_argument('--vae_alpha', type=float, default = 0.9, help='Trade-off parameter for normality of VAE noise injections')
 
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the deterministic sampling')
     parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
