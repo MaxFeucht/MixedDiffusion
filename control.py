@@ -114,9 +114,6 @@ def main(**kwargs):
     x, _ = next(iter(trainloader))   
     channels, imsize = x[0].shape[0], x[0].shape[-1]
 
-    # fix seed
-    torch.manual_seed(0)
-
     if kwargs['vae']:
         unet = VAEUNet(image_size=imsize,
                         channels=channels,
@@ -302,7 +299,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', '--e', type=int, default=10, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=60, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
-    parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
+    parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method, choose one of [x0, xtm1, residual]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
@@ -325,10 +322,10 @@ if __name__ == "__main__":
     parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
 
     # Controlled generation arguments
-    parser.add_argument('--prior_mean', type=float, default = 10, help='Mean of prior noise')
-    parser.add_argument('--prior_std', type=float, default = 0, help='Standard deviation of prior noise')
+    parser.add_argument('--prior_mean', type=float, default = -3, help='Mean of prior noise')
+    parser.add_argument('--prior_std', type=float, default = 1, help='Standard deviation of prior noise')
     parser.add_argument('--plot_imgs', action='store_false', help='Whether to plot images')
-    parser.add_argument('--latent_walk', action='store_false', help='Whether to perform latent walk')
+    parser.add_argument('--latent_walk', action='store_true', help='Whether to perform latent walk')
     parser.add_argument('--dimension_walk', action='store_false', help='Whether to perform latent walk along dimensions (along timesteps otherwise)')
     parser.add_argument('--save_imgs', action='store_true', help='Whether to save images')
 

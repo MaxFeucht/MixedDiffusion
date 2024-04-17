@@ -507,7 +507,8 @@ class Trainer:
         
         # Get Model prediction with correct output and select appropriate loss
         if self.vae: 
-            pred = self.model(x_t, t, x_tm1) # VAE Model needs x_tm1 for prediction. Important: x_tm1 is needed for VAE to run in training mode
+            model_pred = self.model(x_t, t, x_tm1) # VAE Model needs x_tm1 for prediction. Important: x_tm1 is needed for VAE to run in training mode
+            pred = (x_t + model_pred) if self.prediction == 'xtm1' else model_pred # According to Risannen, the model predicts the residual
             reconstruction = self.loss.mse_loss(target, pred) * 10
             kl_div = self.model.kl_div
             loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div)
@@ -754,10 +755,10 @@ class Sampler:
 
             # OURS with xt prediction
             elif self.prediction == 'xtm1':
-                xtm1_hat = pred
+                xtm1_hat = xt + pred # According to Risannen, the model predicts the residual
                 xt = xtm1_hat
                 #samples.append(xt)
-                
+
                 if x0 is not None:
                     x0_hat = self.degradation.degrade(xt, t_tensor-1)
                     samples.append(x0_hat)
@@ -767,7 +768,7 @@ class Sampler:
             # OURS with residual prediction
             elif self.prediction == 'residual':
                 residual = pred
-                xt = xt - residual
+                xt = xt + residual
                 samples.append(xt)
 
                 

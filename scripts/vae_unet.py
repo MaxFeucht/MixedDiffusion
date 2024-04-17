@@ -408,7 +408,12 @@ class VAEUNet(nn.Module):
         # In Generation mode, we don't have xtm1
         else:
             if prior is None:
-                z_sample = torch.randn_like(hs[-1][:,0,:,:]).squeeze()
+                bs, res = hs[-1].shape[0], hs[-1].shape[2]
+                z_sample = torch.randn(bs, res, res).to(hs[-1].device)
+
+                #print("First dimension of z_sample: ", z_sample[0, :, :])
+                #print("Second dimension of z_sample: ", z_sample[1, :, :])
+
             else:
                 z_sample = prior
 

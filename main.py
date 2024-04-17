@@ -202,9 +202,7 @@ def main(**kwargs):
         #                 num_res_blocks=2,
         #                 attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
         #                 dropout=0.1)
-    
-    # fix seed
-    torch.manual_seed(0)
+
 
     if kwargs['vae']:
         unet = VAEUNet(image_size=imsize,
@@ -300,12 +298,16 @@ def main(**kwargs):
             else: # Cold Sampling
                 og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
                 _, xt, direct_recons, all_images = sampler.sample(model = trainer.model, 
-                                                                    x0=og_img, 
+                                                                    #x0=og_img, 
+                                                                    generate=True, 
                                                                     batch_size = kwargs['n_samples'])
-            
+
+                res = imsize//2**kwargs['num_downsamples']
+                prior = torch.randn(kwargs['n_samples'], res, res).to(kwargs['device'])
                 gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model, 
                                                                         batch_size = kwargs['n_samples'], 
-                                                                        generate=True)
+                                                                        generate=True, 
+                                                                        prior=prior)
                 
                 # Training Process conditional generation
                 save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
@@ -335,6 +337,7 @@ def main(**kwargs):
 
 
 
+
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
@@ -343,7 +346,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', '--e', type=int, default=10, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
-    parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
+    parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method, choose one of [x0, xtm1, residual]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
