@@ -9,6 +9,8 @@ from tqdm import tqdm
 from utils import save_image
 import os
 
+import dct_blur as torch_dct
+import numpy as np
 
 import warnings
 
@@ -169,6 +171,10 @@ class Degradation:
                 if i == (self.timesteps-1):
                     x = torch.mean(x, [2, 3], keepdim=True)
                     x = x.expand(x_0.shape[0], x_0.shape[1], x_0.shape[2], x_0.shape[3])
+                
+                # Add Noise to enhance diversity in the degradation
+                # x = x + 0.0005 * torch.randn_like(x_0, device=self.device)
+
                 max_blurs.append(x)
         
         max_blurs = torch.stack(max_blurs)
@@ -179,7 +185,18 @@ class Degradation:
             blur_t.append(max_blurs[t[step], step])
 
         return torch.stack(blur_t)
-    
+
+
+    def dct_blurring(self, x_0, t):
+
+        sigmas = self.blur.dct_sigmas
+
+        if not hasattr(self, 'dct_blur'):
+            self.dct_blur = DCTBlur(sigmas, x_0.shape[-1], self.device)
+
+        xt = self.dct_blur(x_0, t).float()
+        return xt
+        
 
 
     def blacking(self, x_0, t, factor = 0.95, mode = 'linear'):
@@ -273,12 +290,6 @@ class Blurring:
         kernel = kernel.repeat(self.channels, 1, 1, 1)
         conv.weight = nn.Parameter(kernel, requires_grad=False)
 
-        # with torch.no_grad():
-        #     kernel = torch.unsqueeze(kernel, 0)
-        #     kernel = torch.unsqueeze(kernel, 0)
-        #     kernel = kernel.repeat(self.channels, 1, 1, 1)
-        #     conv.weight = nn.Parameter(kernel)
-
         return conv
 
 
@@ -294,6 +305,16 @@ class Blurring:
             kernels.append(self.get_conv((self.kernel_size, self.kernel_size), (self.kernel_stds[i], self.kernel_stds[i]), mode = self.mode)) 
         
         self.gaussian_kernels = nn.ModuleList(kernels).to(self.device)
+    
+    def get_dct_sigmas(self, image_size):
+
+        # Check how Risannen does it, and experiment with Simon's script
+
+        sigmas = []
+        for i in range(self.num_timesteps):
+            #sigma = 0.1 * (image_size / 64) * (i + 1)
+            sigmas.append(sigma)
+        return sigmas
     
 
 
@@ -387,7 +408,7 @@ class Reconstruction:
                 return residual
             else:
                 x0_estimate = xt_coef * x_t - residual_coef * residual 
-                return x0_estimate      
+                return x0_estimate     
 
         elif self.prediction == 'x0':
             x0_estimate = model_output
@@ -422,7 +443,7 @@ class Loss:
 
 class Trainer:
     
-    def __init__(self, model, lr, timesteps, prediction, degradation, noise_schedule, vae, **kwargs):
+    def __init__(self, model, lr, timesteps, prediction, degradation, noise_schedule, vae, vae_alpha, **kwargs):
 
         self.device = kwargs['device']
         self.model = model.to(self.device)
@@ -430,6 +451,7 @@ class Trainer:
         self.timesteps = timesteps
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.vae = vae
+        self.vae_alpha = vae_alpha
 
         general_kwargs = {'timesteps': timesteps, 
                           'prediction': prediction,
@@ -464,7 +486,7 @@ class Trainer:
         if self.deterministic:
             x_t = self.degrader.degrade(x_0, t)
             x_tm1 = self.degrader.degrade(x_0, t-1)
-            residual = x_0 - x_t
+            residual = x_tm1 - x_t 
         else:
             noise = torch.randn_like(x_0, device=self.device) # Important: Noise to degrade with must be the same as the noise that should be predicted
             x_t = self.degrader.degrade(x_0, t, noise=noise)
@@ -477,22 +499,25 @@ class Trainer:
         elif self.prediction == 'x0':
             target = x_0
             ret_x0 = True
+        elif self.prediction == 'xtm1':
+            assert self.deterministic, 'xtm1 prediction not compatible with denoising diffusion'
+            target = x_tm1
         else:
             raise ValueError('Invalid prediction type')
         
         # Get Model prediction with correct output and select appropriate loss
         if self.vae: 
-            model_pred = self.model(x_t, t, x_tm1) # VAE Model needs x_tm1 for prediction. Important: x_tm1 is needed for VAE to run in training mode
-            pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Same for both VAE and non-VAE       
-            reconstruction = self.loss.mse_loss(target, pred)
+            pred = self.model(x_t, t, x_tm1) # VAE Model needs x_tm1 for prediction. Important: x_tm1 is needed for VAE to run in training mode
+            reconstruction = self.loss.mse_loss(target, pred) * 10
             kl_div = self.model.kl_div
-            loss = reconstruction + kl_div
+            loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div)
+            return loss, reconstruction, kl_div
         else:
             model_pred = self.model(x_t, t)
-            pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
+            if not self.deterministic:
+                pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
             loss = self.loss.mse_loss(target, pred)
-
-        return loss
+            return loss
     
     
     def train_epoch(self, dataloader, val = False):
@@ -505,14 +530,24 @@ class Trainer:
 
         # Iterate through trainloader
         epoch_loss = 0  
+        epoch_reconstruction = 0
+        epoch_kl_div = 0
         for i, data in tqdm(enumerate(dataloader), total=len(dataloader)):
             x_0, _ = data
             x_0 = x_0.to(self.device)
             
             # Sample t
             t = torch.randint(0, self.timesteps, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
+            #t = torch.randint(10, 11, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
 
-            loss = self.train_iter(x_0, t)
+            if self.vae:
+                loss, reconstruction, kl_div = self.train_iter(x_0, t)
+                epoch_reconstruction += reconstruction.item()
+                epoch_kl_div += kl_div.item()
+            else:
+                loss = self.train_iter(x_0, t)
+            
+            epoch_loss += loss.item()
 
             # Implement Gradient Accumulation
             if not val:
@@ -523,13 +558,14 @@ class Trainer:
                 if self.apply_ema and i % self.ema_steps==0:
                     self.model_ema.update_parameters(self.model)
             
-            epoch_loss += loss.item()
-
             # Break prematurely if args.test_run
             if self.test_run:
                 break
-
-        return epoch_loss/len(dataloader)
+        
+        if self.vae:
+            return epoch_loss/len(dataloader), epoch_reconstruction/len(dataloader), epoch_kl_div/len(dataloader)
+        else:
+            return epoch_loss/len(dataloader)
 
     
 class Sampler:
@@ -622,7 +658,7 @@ class Sampler:
 
 
     @torch.no_grad() 
-    def sample_ddpm(self, model, batch_size, return_trajectory):
+    def sample_ddpm(self, model, batch_size):
 
         model.eval()
 
@@ -646,13 +682,11 @@ class Sampler:
             x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x_0_hat + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_t = x_t_m1
         
-        if return_trajectory:
-            return samples, ret_x_T
-        else:
-            return x_t.unsqueeze(0), ret_x_T    
+        return samples, ret_x_T
+
 
     @torch.no_grad() 
-    def sample_ddim(self, model, batch_size, return_trajectory):
+    def sample_ddim(self, model, batch_size):
         
         # Sample x_T either every time new or once and keep it fixed 
         if self.x_T is None:
@@ -666,36 +700,82 @@ class Sampler:
 
 
     @torch.no_grad()
-    def sample_cold(self, model, batch_size, return_trajectory = True):
-        
+    def sample_cold(self, model, batch_size = 16, x0=None, generate=False, prior=None, t_inject=None):
+
         model.eval()
 
+        t=self.timesteps
+
+        if not hasattr(self.degradation.blur, 'gaussian_kernels'):
+            self.degradation.blur.get_kernels()
+
         # Sample x_T either every time new or once and keep it fixed 
-        if self.x_T is None:
-            x_t = self.sample_x_T(batch_size, model.channels, model.image_size)
+        if generate:
+            if self.x_T is None:
+                xT = self.sample_x_T(batch_size, model.channels, model.image_size)
+            else:
+                xT = self.x_T
         else:
-            x_t = self.x_T
+            t_tensor = torch.full((batch_size,), t-1, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing and the resulting t+1 in the degradation operation
+            xT = self.degradation.degrade(x0, t_tensor) # Adaption due to explanation below (0 indexing)
+            
+        xt = xT
 
-        symm_string = 'with broken symmetry' if self.break_symmetry else ''
-        ret_x_T = x_t
-
+        direct_recons = None
         samples = []
-        samples.append(x_t) 
-        for t in tqdm(reversed(range(1, self.timesteps)), desc=f"Cold Sampling {symm_string}"):
-            t_tensor = torch.tensor([t], dtype=torch.long).repeat(x_t.shape[0]).to(self.device) #### ATTENTION: TRY T-1 AS IN COLD DIFFUSION!!!
-            model_pred = model(x_t, t_tensor)
-            x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t_tensor, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
-            x_tm1 = x_t - self.degradation.degrade(x_0_hat, t_tensor) + self.degradation.degrade(x_0_hat, t_tensor - 1) # WATCH OUT: Changed t and t-1 to t+1 and t
-            x_t = x_tm1 
-            samples.append(x_t)
+        samples.append(xT) 
+
+        for t in tqdm(reversed(range(self.timesteps)), desc=f"Cold Sampling"):
+            t_tensor = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
+            
+            if generate:
+                    if t_inject is not None: # T_Inject aims to assess the effect of manipulated injections at different timesteps
+                        pred = model(xt, t_tensor, xtm1=None, prior=prior if t == t_inject else None)
+                    else: # If no t_inject is provided, we always use the provided prior
+                        pred = model(xt, t_tensor, xtm1=None, prior=prior)
+            else:
+                # Reconstruction with encoded latent from x0 ground truth
+                xtm1 = self.degradation.degrade(x0, t_tensor-1) # Adaption due to explanation below (0 indexing)
+                pred = model(xt, t_tensor, xtm1)
+
+
+            # BANSAL ALGORITHM 2
+            if self.prediction == 'x0':
+                x0_hat = pred
+                xt_hat = self.degradation.degrade(x0_hat, t_tensor)
+                xtm1_hat = self.degradation.degrade(x0_hat, t_tensor - 1) 
+                xtm1 = xt - xt_hat + xtm1_hat
+                xt = xtm1
+                samples.append(xt)
+
+                if direct_recons == None:
+                    direct_recons = x0_hat
+    
+
+            # OURS with xt prediction
+            elif self.prediction == 'xtm1':
+                xtm1_hat = pred
+                xt = xtm1_hat
+                #samples.append(xt)
+                
+                if x0 is not None:
+                    x0_hat = self.degradation.degrade(xt, t_tensor-1)
+                    samples.append(x0_hat)
+
         
-        if return_trajectory:
-            return samples, ret_x_T
-        else:
-            return x_t.unsqueeze(0), ret_x_T
+
+            # OURS with residual prediction
+            elif self.prediction == 'residual':
+                residual = pred
+                xt = xt - residual
+                samples.append(xt)
+
+                
+        return samples, xT, direct_recons, xt
+
     
     @torch.no_grad()
-    def sample_cold_orig(self, model, batch_size = 16, img=None, generate=False, return_trajectory = True):
+    def sample_cold_orig(self, model, batch_size = 16, x0=None, generate=False, prior=None, t_inject=None):
 
         model.eval()
 
@@ -705,43 +785,56 @@ class Sampler:
             self.degradation.blur.get_kernels()
         
         # Decide whether to generate x_T or use the degraded input image (reconstruction)
-        temp = img
         if generate:
             # Sample x_T either every time new or once and keep it fixed 
             if self.x_T is None:
-                xt = self.sample_x_T(batch_size, model.channels, model.image_size)
+                xT = self.sample_x_T(batch_size, model.channels, model.image_size)
             else:
-                xt = self.x_T
+                xT = self.x_T
         else:
             # for i in range(t):
             #     with torch.no_grad():
             #         img = self.degradation.blur.gaussian_kernels[i](img)
             #         if i == (self.timesteps-1):
             #             img = torch.mean(img, [2, 3], keepdim=True)
-            #             img = img.expand(temp.shape[0], temp.shape[1], temp.shape[2], temp.shape[3])
+            #             img = img.expand(x0.shape[0], x0.shape[1], x0.shape[2], x0.shape[3])
             
             t_tensor = torch.full((batch_size,), t-1, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing and the resulting t+1 in the degradation operation
-            img = self.degradation.degrade(img, t_tensor) # Adaption due to explanation below (0 indexing)
+            xT = self.degradation.degrade(x0, t_tensor) # Adaption due to explanation below (0 indexing)
             
-            xt = img
 
-
-        img = xt
+        img = xT
 
         direct_recons = None
         #while(t):
         samples = []
-        samples.append(xt) 
-        for t_step in reversed(range(t)):
+        samples.append(xT) 
+        for t_step in tqdm(reversed(range(t)), desc="Cold Original Sampling"):
             step = torch.full((batch_size,), t_step, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
             
-            x = model(img, step)
+            if generate:
+                # if t_step == t_inject: # Check what injections at different timesteps do
+                #     x0_hat = model(img, step, prior=prior)
+                # else:
+                #     x0_hat = model(img, step, prior=None)
+                
+                x0_hat = model(img, step, prior=prior)
 
+            else:
+                # Bootstrapped sampling by using VAE-encoding derived from x0 predictions
+                # Sample first x0_hat using VAE prior
+                # if t_step == (t-1):
+                #     x0_hat = model(img, step, prior=prior)
+
+                # Reconstruction with encoded latent from x0 predictions
+                xtm1_hat = self.degradation.degrade(x0, step-1) # Adaption due to explanation below (0 indexing)
+                x0_hat = model(img, step, xtm1_hat)
+                
             if direct_recons == None:
-                direct_recons = x
+                direct_recons = x0_hat
 
-            x_times = x
-            x_times = self.degradation.degrade(x_times, step) 
+            # x_times = x0_hat
+            x_times = self.degradation.degrade(x0_hat, step) 
             # for i in range(t_step): #t+1 to account for 0 indexing of range
             #     with torch.no_grad():
             #         x_times = self.degradation.blur.gaussian_kernels[i](x_times)
@@ -750,31 +843,33 @@ class Sampler:
             #             x_times = x_times.expand(temp.shape[0], temp.shape[1], temp.shape[2], temp.shape[3])
 
 
-            x_times_sub_1 = x
-            x_times_sub_1 = self.degradation.degrade(x_times_sub_1, step - 1)
+            # x_times_sub_1 = x0_hat
+            x_times_sub_1 = self.degradation.degrade(x0_hat, step - 1)
             # for i in range(t_step-1): # actually t-1 but t because of 0 indexing
             #     with torch.no_grad():
             #         x_times_sub_1 = self.degradation.blur.gaussian_kernels[i](x_times_sub_1)
 
-            x = img - x_times + x_times_sub_1
-            img = x
-            samples.append(x)
+            xt_hat = img - x_times + x_times_sub_1
+            img = xt_hat
+            samples.append(xt_hat)
             #t = t -1
         
         model.train()
 
-        if return_trajectory:
-            return samples, xt, direct_recons, img
-        else:
-            return None, xt, direct_recons, img
+        return samples, xT, direct_recons, img
 
 
 
-    def sample(self, model, batch_size, return_trajectory = True, img=None, generate=False):
+    def sample(self, model, batch_size, x0=None, prior=None, generate=False, t_inject=None):
         if self.deterministic:
-            return self.sample_cold_orig(model, batch_size, img, generate, return_trajectory)
+            return self.sample_cold(model, 
+                                    batch_size, 
+                                    x0, 
+                                    generate=generate, 
+                                    prior=prior, 
+                                    t_inject=t_inject)
         else:
-            return self.sample_ddpm(model, batch_size, return_trajectory)
+            return self.sample_ddpm(model, batch_size)
         
 
                 
@@ -790,6 +885,26 @@ class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
             return decay * avg_model_param + (1 - decay) * model_param
 
         super().__init__(model, device, ema_avg, use_buffers=True)
+
+
+class DCTBlur(nn.Module):
+
+    def __init__(self, blur_sigmas, image_size, device):
+        super(DCTBlur, self).__init__()
+        self.blur_sigmas = torch.tensor(blur_sigmas).to(device)
+        freqs = np.pi*torch.linspace(0, image_size-1,
+                                    image_size).to(device)/image_size
+        self.frequencies_squared = freqs[:, None]**2 + freqs[None, :]**2
+
+    def forward(self, x, fwd_steps):
+        if len(x.shape) == 4:
+            sigmas = self.blur_sigmas[fwd_steps][:, None, None, None]
+        elif len(x.shape) == 3:
+            sigmas = self.blur_sigmas[fwd_steps][:, None, None]
+        t = sigmas**2/2
+        dct_coefs = torch_dct.dct_2d(x, norm='ortho')
+        dct_coefs = dct_coefs * torch.exp(- self.frequencies_squared * t)
+        return torch_dct.idct_2d(dct_coefs, norm='ortho')
 
 
 

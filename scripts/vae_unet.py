@@ -366,7 +366,7 @@ class VAEUNet(nn.Module):
                                         padding=1)
 
 
-    def forward(self, xt, t, xtm1 = None):
+    def forward(self, xt, t, xtm1 = None, prior=None):
         assert xt.shape[2] == xt.shape[3] == self.image_size
 
         # timestep embedding
@@ -399,21 +399,27 @@ class VAEUNet(nn.Module):
             # VAE Encoder
             mu, logvar = self.vae_encoder(xt, xtm1, temb)
 
-            # Bring mu and logvar to the same shape as the last feature map
-            bs, depth, res = hs[-1].shape[0], hs[-1].shape[1], hs[-1].shape[2]
-            mu = mu.view(bs, 1, res, res).expand(-1, depth, -1, -1)
-            logvar = logvar.view(bs, 1, res, res).expand(-1, depth, -1, -1)
+            # Reparameterization trick
+            z_sample = torch.randn_like(mu) * torch.exp(0.5*logvar) + mu
 
             # KL Divergence for VAE Encoder
             self.kl_div = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar).sum(1).mean()
-    
-            # Reparameterization trick
-            z_sample = torch.randn_like(mu) * torch.exp(0.5*logvar) + mu
-        
+
         # In Generation mode, we don't have xtm1
         else:
-            z_sample = torch.randn_like(hs[-1])
+            if prior is None:
+                z_sample = torch.randn_like(hs[-1][:,0,:,:]).squeeze()
+            else:
+                z_sample = prior
 
+                # If feature map is not of batch size, resize z_sample
+                if prior.shape[0] != hs[-1].shape[0]:
+                    z_sample = z_sample[:hs[-1].shape[0], :, :]
+             
+        # Bring latent to the same shape as the last feature map
+        bs, depth, res = hs[-1].shape[0], hs[-1].shape[1], hs[-1].shape[2]
+        z_sample = z_sample.reshape(bs, 1, res, res).expand(-1, depth, -1, -1)
+    
         # Add VAE output to last feature map
         hs[-1] = hs[-1] + z_sample
 

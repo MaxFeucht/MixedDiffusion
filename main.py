@@ -202,7 +202,10 @@ def main(**kwargs):
         #                 num_res_blocks=2,
         #                 attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
         #                 dropout=0.1)
-        
+    
+    # fix seed
+    torch.manual_seed(0)
+
     if kwargs['vae']:
         unet = VAEUNet(image_size=imsize,
                         channels=channels,
@@ -211,7 +214,7 @@ def main(**kwargs):
                         ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
                         num_res_blocks=2,
                         attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
-                        dropout=0.1)
+                        dropout=0)
     else:
         unet = BansalUnet(image_size=imsize,
                 channels=channels,
@@ -220,7 +223,7 @@ def main(**kwargs):
                 ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
                 num_res_blocks=2,
                 attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
-                dropout=0.1)
+                dropout=0)
 
 
     # # Enable Multi-GPU training
@@ -267,7 +270,15 @@ def main(**kwargs):
 
         # Train
         trainer.model.train()
-        trainloss = trainer.train_epoch(trainloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
+        if kwargs['vae']:
+            trainloss, reconstruction, kl_div = trainer.train_epoch(trainloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
+            wandb.log({"train loss": trainloss,
+                       "reconstruction loss": reconstruction,
+                        "kl divergence": kl_div}, step = e)
+        else:
+            trainloss = trainer.train_epoch(trainloader, val=False)
+            wandb.log({"train loss": trainloss}, step=e)
+
         print(f"Epoch {e} Train Loss: {trainloss}")
 
         if sample_flag:
@@ -288,14 +299,20 @@ def main(**kwargs):
             
             else: # Cold Sampling
                 og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
-                _, xt, direct_recons, all_images = sampler.sample_cold_orig(model = trainer.model, img = og_img, batch_size = kwargs['n_samples'])
-                gen_samples, gen_xt, _, gen_all_images = sampler.sample_cold_orig(model = trainer.model, img = og_img, batch_size = kwargs['n_samples'], generate=True, return_trajectory=True)
+                _, xt, direct_recons, all_images = sampler.sample(model = trainer.model, 
+                                                                    x0=og_img, 
+                                                                    batch_size = kwargs['n_samples'])
+            
+                gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model, 
+                                                                        batch_size = kwargs['n_samples'], 
+                                                                        generate=True)
                 
                 # Training Process conditional generation
                 save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
                 save_image(xt, os.path.join(imgpath, f'xt_{e}.png'), nrow=nrow)
                 save_image(all_images, os.path.join(imgpath, f'sample_regular_{e}.png'), nrow=nrow)
-                save_image(direct_recons, os.path.join(imgpath, f'direct_recon_{e}.png'), nrow=nrow)
+                if kwargs['prediction'] == 'x0':
+                    save_image(direct_recons, os.path.join(imgpath, f'direct_recon_{e}.png'), nrow=nrow)
 
                 # Training Process unconditional generation
                 save_image(gen_xt, os.path.join(imgpath, f'gen_xt_{e}.png'), nrow=nrow)
@@ -315,26 +332,24 @@ def main(**kwargs):
                 }
                 torch.save(chkpt, os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['timesteps']}_{kwargs['prediction']}{ema_flag}.pt"))
 
-        # Log to wandb
-        wandb.log({"train loss": trainloss}, step=e)
 
 
 
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=20, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=10, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
-    parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method')
+    parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
-    parser.add_argument('--cluster', '--clust', action='store_true', help='Whether to run script locally')
+    parser.add_argument('--cluster', action='store_true', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=60, help='Number of samples to generate')
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
     parser.add_argument('--fix_sample', action='store_false', help='Whether to fix x_T for sampling, to see sample progression')
@@ -345,10 +360,11 @@ if __name__ == "__main__":
     parser.add_argument('--kernel_size', type=int, default=3, help='Number of training steps')
     parser.add_argument('--kernel_std', type=float, default=0.1, help='Number of training steps')
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
-    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
     parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
-    
+    parser.add_argument('--vae_alpha', type=float, default = 0.8, help='Trade-off parameter for normality of VAE noise injections')
+
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the deterministic sampling')
+    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
 
     args = parser.parse_args()
 
@@ -369,7 +385,6 @@ if __name__ == "__main__":
         print("Running Test Run with only one iter per epoch")
     
     print("Device: ", args.device)
-    print("Arguments: ", args)
 
     # Initialize wandb
     wandb.init(
