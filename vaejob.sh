@@ -43,20 +43,21 @@ cd /var/scratch/mft520/experiments
 
 ## Set Vars
 
-lr=2e-5
+lr=5e-5
 batch_size=128
-timesteps=300
+timesteps=50
 dim=128
 epochs=1000
-prediction="x0"
+prediction="xtm1"
 degradation="fadeblack_blur"
 noise_schedule="cosine"
-dataset="cifar10"
+dataset="mnist"
 sample_interval=1
 n_samples=72
 model_ema_steps=10
 model_ema_decay=0.995
 num_train_steps=700000
+vae_alpha=0.9
 
 
 # Run the actual experiment. 
@@ -64,6 +65,6 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --lr $lr --prediction $prediction --degradation $degradation \
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --num_train_steps $num_train_steps \
-                                                --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
+                                                --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay --vae_alpha $vae_alpha\
                                                 --cluster --vae #--load_checkpoint
 echo "Script finished"
