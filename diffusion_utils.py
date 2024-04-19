@@ -171,9 +171,6 @@ class Degradation:
                 if i == (self.timesteps-1):
                     x = torch.mean(x, [2, 3], keepdim=True)
                     x = x.expand(x_0.shape[0], x_0.shape[1], x_0.shape[2], x_0.shape[3])
-                
-                # Add Noise to enhance diversity in the degradation
-                # x = x + 0.0005 * torch.randn_like(x_0, device=self.device)
 
                 max_blurs.append(x)
         
@@ -182,7 +179,10 @@ class Degradation:
         # Choose the correct blur for each image in the batch
         blur_t = []
         for step in range(t.shape[0]):
-            blur_t.append(max_blurs[t[step], step])
+            if t[step] != -1:
+                blur_t.append(max_blurs[t[step], step])
+            else:
+                blur_t.append(x_0[step])
 
         return torch.stack(blur_t)
 
@@ -213,7 +213,7 @@ class Degradation:
         #     multiplier = factor ** (t)  # +1 bc of zero indexing
         
         if mode == 'linear':
-            multiplier = (1 - (t) / (self.timesteps-1)).reshape(-1, 1, 1, 1)  # +1 bc of zero indexing
+            multiplier = (1 - (t+1) / (self.timesteps)).reshape(-1, 1, 1, 1)  # +1 bc of zero indexing
         
         elif mode == 'exponential':
             if t == self.timesteps-1:
@@ -484,7 +484,11 @@ class Trainer:
 
         # Degrade and obtain residual
         if self.deterministic:
-            x_t = self.degrader.degrade(x_0, t)
+            x_t = self.degrader.degrade(x_0, t) 
+            
+            # Add noise to degrade with - Noise injection a la Bansal
+            x_t = x_t + torch.randn_like(x_0, device=self.device) * 0.01
+
             x_tm1 = self.degrader.degrade(x_0, t-1)
             residual = x_tm1 - x_t 
         else:
@@ -501,6 +505,8 @@ class Trainer:
             ret_x0 = True
         elif self.prediction == 'xtm1':
             assert self.deterministic, 'xtm1 prediction not compatible with denoising diffusion'
+            # if t[0].item() == 0:
+            #     assert torch.all(torch.eq(x_tm1[0], x_0[0])), 'x_tm1 not equal to x_0 for last step'
             target = x_tm1
         else:
             raise ValueError('Invalid prediction type')
@@ -514,9 +520,9 @@ class Trainer:
             loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div)
             return loss, reconstruction, kl_div
         else:
-            model_pred = self.model(x_t, t)
+            pred = self.model(x_t, t)
             if not self.deterministic:
-                pred = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
+                pred = self.reconstruction.reform_pred(pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
             loss = self.loss.mse_loss(target, pred)
             return loss
     
@@ -729,22 +735,25 @@ class Sampler:
         for t in tqdm(reversed(range(self.timesteps)), desc=f"Cold Sampling"):
             t_tensor = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
             
-            if generate:
-                    if t_inject is not None: # T_Inject aims to assess the effect of manipulated injections at different timesteps
-                        pred = model(xt, t_tensor, xtm1=None, prior=prior if t == t_inject else None)
-                    else: # If no t_inject is provided, we always use the provided prior
-                        pred = model(xt, t_tensor, xtm1=None, prior=prior)
+            if self.vae:
+                if generate:
+                            if t_inject is not None: # T_Inject aims to assess the effect of manipulated injections at different timesteps
+                                pred = model(xt, t_tensor, xtm1=None, prior=prior if t == t_inject else None)
+                            else: # If no t_inject is provided, we always use the provided prior
+                                    pred = model(xt, t_tensor, xtm1=None, prior=prior)
+                else:
+                    # Reconstruction with encoded latent from x0 ground truth
+                    xtm1 = self.degradation.degrade(x0, t_tensor-1) # Adaption due to explanation below (0 indexing)
+                    pred = model(xt, t_tensor, xtm1)
             else:
-                # Reconstruction with encoded latent from x0 ground truth
-                xtm1 = self.degradation.degrade(x0, t_tensor-1) # Adaption due to explanation below (0 indexing)
-                pred = model(xt, t_tensor, xtm1)
+                pred = model(xt, t_tensor)
 
 
             # BANSAL ALGORITHM 2
             if self.prediction == 'x0':
                 x0_hat = pred
                 xt_hat = self.degradation.degrade(x0_hat, t_tensor)
-                xtm1_hat = self.degradation.degrade(x0_hat, t_tensor - 1) 
+                xtm1_hat = self.degradation.degrade(x0_hat, t_tensor - 1) # This returns x0_hat for t=0
                 xtm1 = xt - xt_hat + xtm1_hat
                 xt = xtm1
                 samples.append(xt)
@@ -757,11 +766,11 @@ class Sampler:
             elif self.prediction == 'xtm1':
                 xtm1_hat = xt + pred # According to Risannen, the model predicts the residual
                 xt = xtm1_hat
-                #samples.append(xt)
+                samples.append(xt)
 
-                if x0 is not None:
-                    x0_hat = self.degradation.degrade(xt, t_tensor-1)
-                    samples.append(x0_hat)
+                # if x0 is not None:
+                #     x0_hat = self.degradation.degrade(xt, t_tensor-1)
+                #     samples.append(x0_hat)
 
         
 

@@ -292,7 +292,7 @@ class VAEUNet(nn.Module):
         # VAE injection
         self.vae_encoder = VAEEncoder(dim=ch, 
                                 dim_mult=ch_mult, 
-                                latent_dim=curr_res, 
+                                latent_dim=curr_res*curr_res, 
                                 image_size=image_size, 
                                 channels=channels, 
                                 temb_channels=self.temb_ch,
@@ -417,7 +417,7 @@ class VAEUNet(nn.Module):
              
         # Bring latent to the same shape as the last feature map
         bs, depth, res = xt.shape[0], xt.shape[1], xt.shape[2]
-        z_sample = z_sample.reshape(bs, 1, 1, res).expand(-1, depth, res, -1)
+        z_sample = z_sample.reshape(bs, 1, res, res).expand(-1, depth, -1, -1)
 
         xt = xt + 0.01 * z_sample # Delete this line after testing
 
