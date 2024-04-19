@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=full_vae_xt_nonoise_mnist
+#SBATCH --job-name=vae_0.005
 #SBATCH --time=12:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
@@ -58,7 +58,7 @@ model_ema_steps=10
 model_ema_decay=0.995
 num_train_steps=700000
 vae_alpha=0.9
-noise_scale = 0.0
+noise_scale=0.005
 
 
 
