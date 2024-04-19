@@ -452,6 +452,7 @@ class Trainer:
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.vae = vae
         self.vae_alpha = vae_alpha
+        self.noise_scale = kwargs['noise_scale']
 
         general_kwargs = {'timesteps': timesteps, 
                           'prediction': prediction,
@@ -487,7 +488,7 @@ class Trainer:
             x_t = self.degrader.degrade(x_0, t) 
             
             # Add noise to degrade with - Noise injection a la Bansal
-            x_t = x_t + torch.randn_like(x_0, device=self.device) * 0.01
+            x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
 
             x_tm1 = self.degrader.degrade(x_0, t-1)
             residual = x_tm1 - x_t 
@@ -650,10 +651,10 @@ class Sampler:
             # Sample x_T from R0
             x_t = torch.zeros((batch_size, channels, image_size, image_size), device=self.device) 
             
-            # Noise injection for breaking symmetry
-            noise_level = 0.001
-            if self.break_symmetry:
-                x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
+            # # Noise injection for breaking symmetry
+            # noise_level = 0.001
+            # if self.break_symmetry:
+            #     x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
         
         elif not self.deterministic:
             # Sample x_T from random normal distribution
@@ -747,7 +748,6 @@ class Sampler:
                     pred = model(xt, t_tensor, xtm1)
             else:
                 pred = model(xt, t_tensor)
-
 
             # BANSAL ALGORITHM 2
             if self.prediction == 'x0':
