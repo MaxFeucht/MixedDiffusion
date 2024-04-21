@@ -195,6 +195,7 @@ class BansalUnet(nn.Module):
         super().__init__()
         self.ch = ch
         self.temb_ch = self.ch*4
+        self.ch_mult = ch_mult
         self.num_resolutions = len(ch_mult)
         self.num_res_blocks = num_res_blocks
         self.image_size = image_size

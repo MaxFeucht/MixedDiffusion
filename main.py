@@ -205,6 +205,9 @@ def main(**kwargs):
 
 
     if kwargs['vae']:
+        if kwargs['vae_full']:   
+            from scripts.vae_unet_full import VAEUNet
+
         unet = VAEUNet(image_size=imsize,
                         channels=channels,
                         out_ch=channels,
@@ -302,10 +305,13 @@ def main(**kwargs):
                                                                     generate=True, 
                                                                     batch_size = kwargs['n_samples'])
 
-                #res = imsize//2**kwargs['num_downsamples']
-                #prior = torch.randn(kwargs['n_samples'], res, res).to(kwargs['device'])
+                if kwargs['vae_full']:
+                    prior = torch.randn(kwargs['n_samples'], channels, imsize, imsize).to(kwargs['device'])
+                else:
+                    prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
+                    #res = imsize//2**kwargs['num_downsamples']
+                    #prior = torch.randn(kwargs['n_samples'], res, res).to(kwargs['device'])
                 
-                prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
                 gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model, 
                                                                         batch_size = kwargs['n_samples'], 
                                                                         generate=True, 
@@ -348,7 +354,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', '--e', type=int, default=10, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
-    parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
+    parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method, choose one of [x0, xtm1, residual]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
@@ -367,8 +373,10 @@ if __name__ == "__main__":
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
     parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.9, help='Trade-off parameter for normality of VAE noise injections')
+    parser.add_argument('--vae_full', action='store_true', help='Whether to use full resolution VAE injections')
+    parser.add_argument('--vae_downsample', type=float, help='To which degree to downsample and repeat the VAE noise injections')
 
-    parser.add_argument('--noise_scale', type=float, default = 0.0, help='How much Noise to add to the input')
+    parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the input')
     parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
 
@@ -378,8 +386,15 @@ if __name__ == "__main__":
     args.device = 'cuda' if torch.cuda.is_available() else 'mps'
 
     if args.vae:
-        print("Using VAE Noise Injections")
+        print("Using VAE Noise Injections" if not args.vae_full else "Using Full Resolution VAE Noise Injections")
         assert not args.add_noise, "Cannot use VAE and add noise at the same time"
+        if args.vae_full:
+            assert args.noise_scale == 0.0, "Noise scale must be 0 for full resolution VAE"
+    else:
+        if args.vae_full:
+            print("Using External Full Resolution VAE")
+        else:
+            print("Using Normal U-Net")
 
     if not args.cluster:
         print("Running locally, Cluster =", args.cluster)

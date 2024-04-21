@@ -12,6 +12,8 @@ import os
 import dct_blur as torch_dct
 import numpy as np
 
+from scripts.vae_unet_full import VAEEncoder
+
 import warnings
 
 ### Forward Process ###
@@ -453,6 +455,8 @@ class Trainer:
         self.vae = vae
         self.vae_alpha = vae_alpha
         self.noise_scale = kwargs['noise_scale']
+        self.vae_xt = kwargs['vae_full']
+        self.vae_downsample = kwargs['vae_downsample']
 
         general_kwargs = {'timesteps': timesteps, 
                           'prediction': prediction,
@@ -480,6 +484,20 @@ class Trainer:
             self.model_ema = model
             warnings.warn('No EMA applied')
 
+        if self.vae_xt:
+
+            latent_dim = model.channels * model.image_size * model.image_size
+            latent_dim = latent_dim // kwargs['vae_downsample'] 
+
+            self.vae_model = VAEEncoder(dim=model.ch, 
+                            dim_mult=model.ch_mult, 
+                            latent_dim=latent_dim, # Returns flattened image latents
+                            image_size=model.image_size, 
+                            channels=model.channels, 
+                            temb_channels=model.temb_ch,
+                            dropout=0)
+            self.vae_model = self.vae_model.to(self.device)
+
 
     def train_iter(self, x_0, t):
 
@@ -488,7 +506,8 @@ class Trainer:
             x_t = self.degrader.degrade(x_0, t) 
             
             # Add noise to degrade with - Noise injection a la Bansal
-            x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
+            if not self.vae_xt:
+                x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
 
             x_tm1 = self.degrader.degrade(x_0, t-1)
             residual = x_tm1 - x_t 
@@ -521,10 +540,34 @@ class Trainer:
             loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div)
             return loss, reconstruction, kl_div
         else:
-            pred = self.model(x_t, t)
+
+            # Full scale external VAE injection
+            if self.vae_xt:
+                vae_mu, vae_logvar = self.vae_model(x_t, x_tm1, t)
+                z_sample = torch.randn_like(vae_mu) * torch.exp(0.5*vae_logvar) + vae_mu
+
+                # Repeat z_sample to match image dimensions
+                if self.vae_downsample > 1:
+                    z_sample = z_sample.repeat(1, self.vae_downsample) # Flattened image latents, repeated on non-batch dimensions
+
+                # KL Divergence for VAE Encoder
+                kl_div = 0.5 * (vae_mu.pow(2) + vae_logvar.exp() - 1 - vae_logvar).sum(1).mean()
+
+                bs, ch, res = x_t.shape[0], x_t.shape[1], x_t.shape[2]
+                x_t = x_t + z_sample.reshape(bs, ch, res, res) * self.noise_scale
+
+            model_pred = self.model(x_t, t)
+
+            # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
+            pred = (x_t + model_pred) if self.prediction == 'xtm1' else model_pred
+
             if not self.deterministic:
                 pred = self.reconstruction.reform_pred(pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
             loss = self.loss.mse_loss(target, pred)
+
+            if self.vae_xt:
+                loss = self.vae_alpha * loss + (1-self.vae_alpha) * kl_div
+
             return loss
     
     
@@ -589,6 +632,8 @@ class Sampler:
         self.gmm = None
         self.break_symmetry = kwargs['add_noise']
         self.vae = kwargs['vae']
+        self.vae_xt = kwargs['vae_full']
+        self.noise_scale = kwargs['noise_scale']
         
 
     def fit_gmm(self, dataloader, clusters = 1, sample = False):
@@ -747,6 +792,20 @@ class Sampler:
                     xtm1 = self.degradation.degrade(x0, t_tensor-1) # Adaption due to explanation below (0 indexing)
                     pred = model(xt, t_tensor, xtm1)
             else:
+                if self.vae_xt:
+                    
+                    # Sample from VAE prior (and repeat to match image dimensions in necessary)
+                    latent_dim = (model.channels * model.image_size * model.image_size) // self.vae_downsample
+                    noise = torch.randn((batch_size, latent_dim), device=self.device) * self.noise_scale
+
+                    bs, ch, res = xt.shape[0], xt.shape[1], xt.shape[2]
+                    noise = noise.reshape(bs, ch, res, res) * self.noise_scale
+                    
+                    if self.vae_downsample > 1:
+                        noise = noise.repeat(1, self.vae_downsample) # Flattened image latents, repeated on non-batch dimensions
+
+                    xt = xt + noise
+                    
                 pred = model(xt, t_tensor)
 
             # BANSAL ALGORITHM 2

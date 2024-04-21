@@ -204,6 +204,15 @@ class VAEEncoder(nn.Module):
                                        kernel_size=3,
                                        stride=1,
                                        padding=1)
+        
+        # Provisoric timestep embedding
+        self.temb = nn.Module()
+        self.temb.dense = nn.ModuleList([
+            torch.nn.Linear(self.dim,
+                            self.dim*4),
+            torch.nn.Linear(self.dim*4,
+                            self.dim*4),
+        ])
 
         curr_res = image_size
         in_dim_mult = (1,)+dim_mult
@@ -233,6 +242,12 @@ class VAEEncoder(nn.Module):
 
     def forward(self, xt, xtm1, temb):
         assert xt.shape[2] == xt.shape[3] == self.image_size
+
+        # Provisoric timestep embedding
+        temb = get_timestep_embedding(temb, self.dim)
+        temb = self.temb.dense[0](temb)
+        temb = nonlinearity(temb)
+        temb = self.temb.dense[1](temb)
 
         # Combine the two images
         x = torch.cat([xt, xtm1], dim=1)
@@ -292,12 +307,13 @@ class VAEUNet(nn.Module):
         # VAE injection
         self.vae_encoder = VAEEncoder(dim=ch, 
                                 dim_mult=ch_mult, 
-                                latent_dim=curr_res*curr_res, 
+                                latent_dim=channels*image_size*image_size, # Returns flattened image latents
                                 image_size=image_size, 
                                 channels=channels, 
                                 temb_channels=self.temb_ch,
                                 dropout=dropout)
         
+
         in_ch_mult = (1,)+ch_mult
         self.down = nn.ModuleList()
         for i_level in range(self.num_resolutions):
@@ -320,18 +336,6 @@ class VAEUNet(nn.Module):
                 down.downsample = Downsample(block_in, resamp_with_conv)
                 curr_res = curr_res // 2
             self.down.append(down)
-
-        # middle
-
-        # VAE Encoder
-        # print(f"VAE Encoder latent dimension: {curr_res} x {curr_res}")
-        # self.vae_encoder = VAEEncoder(dim=ch, 
-        #                               dim_mult=ch_mult, 
-        #                               latent_dim=curr_res*curr_res, 
-        #                               image_size=image_size, 
-        #                               channels=channels, 
-        #                               temb_channels=self.temb_ch,
-        #                               dropout=dropout)
 
         # Bottleneck
         self.mid = nn.Module()
@@ -405,8 +409,8 @@ class VAEUNet(nn.Module):
         # In Generation mode, we don't have xtm1
         else:
             if prior is None:
-                bs, res = xt.shape[0], xt.shape[2]
-                z_sample = torch.randn(bs, res).to(xt.device)
+                bs,channels, res = xt.shape[0], xt.shape[1], xt.shape[2]
+                z_sample = torch.randn(bs, channels, res, res).to(xt.device)
 
             else:
                 z_sample = prior
@@ -417,7 +421,7 @@ class VAEUNet(nn.Module):
              
         # Bring latent to the same shape as the last feature map
         bs, depth, res = xt.shape[0], xt.shape[1], xt.shape[2]
-        z_sample = z_sample.reshape(bs, 1, res, res).expand(-1, depth, -1, -1)
+        z_sample = z_sample.reshape(bs, depth, res, res) #.expand(-1, depth, -1, -1) # We only expand after we're certain that the VAE injections work on full scale
 
         xt = xt + 0.01 * z_sample # Delete this line after testing
 
@@ -431,48 +435,6 @@ class VAEUNet(nn.Module):
                 hs.append(h)
             if i_level != self.num_resolutions-1:
                 hs.append(self.down[i_level].downsample(hs[-1]))
-
-        # middle
-
-        # VAE Injection
-
-        # I'll have to find a way to know the latent dimension and initialize the VAE encoder accordingly
-        # Do we need a scaling factor for the latent dimension? Is this something that can be learned by the VAE?
-        
-        # In Training mode, we have xtm1
-        # if xtm1 is not None:
-
-        #     # VAE Encoder
-        #     mu, logvar = self.vae_encoder(xt, xtm1, temb)
-
-        #     # Reparameterization trick
-        #     z_sample = torch.randn_like(mu) * torch.exp(0.5*logvar) + mu
-
-        #     # KL Divergence for VAE Encoder
-        #     self.kl_div = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar).sum(1).mean()
-
-        # # In Generation mode, we don't have xtm1
-        # else:
-        #     if prior is None:
-        #         bs, res = hs[-1].shape[0], hs[-1].shape[2]
-        #         z_sample = torch.randn(bs, res, res).to(hs[-1].device)
-
-        #         #print("First dimension of z_sample: ", z_sample[0, :, :])
-        #         #print("Second dimension of z_sample: ", z_sample[1, :, :])
-
-        #     else:
-        #         z_sample = prior
-
-        #         # If feature map is not of batch size, resize z_sample
-        #         if prior.shape[0] != hs[-1].shape[0]:
-        #             z_sample = z_sample[:hs[-1].shape[0], :, :]
-             
-        # # Bring latent to the same shape as the last feature map
-        # bs, depth, res = hs[-1].shape[0], hs[-1].shape[1], hs[-1].shape[2]
-        # z_sample = z_sample.reshape(bs, 1, res, res).expand(-1, depth, -1, -1)
-    
-        # # Add VAE output to last feature map
-        # hs[-1] = hs[-1] + z_sample
 
         # U-Net Bottleneck
         h = hs[-1]
