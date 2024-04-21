@@ -634,6 +634,7 @@ class Sampler:
         self.vae = kwargs['vae']
         self.vae_xt = kwargs['vae_full']
         self.noise_scale = kwargs['noise_scale']
+        self.vae_downsample = kwargs['vae_downsample']
         
 
     def fit_gmm(self, dataloader, clusters = 1, sample = False):
@@ -781,6 +782,21 @@ class Sampler:
         for t in tqdm(reversed(range(self.timesteps)), desc=f"Cold Sampling"):
             t_tensor = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
             
+            # External VAE Injection - THIS IS SAMPLING NOISE
+            # if self.vae_xt:
+                    
+            #         # Sample from VAE prior (and repeat to match image dimensions in necessary)
+            #         latent_dim = (model.channels * model.image_size * model.image_size) // self.vae_downsample
+            #         noise = torch.randn((batch_size, latent_dim), device=self.device) * self.noise_scale
+
+            #         bs, ch, res = xt.shape[0], xt.shape[1], xt.shape[2]
+            #         noise = noise.reshape(bs, ch, res, res) * self.noise_scale
+                    
+            #         if self.vae_downsample > 1:
+            #             noise = noise.repeat(1, self.vae_downsample) # Flattened image latents, repeated on non-batch dimensions
+
+            #         xt = xt + noise
+
             if self.vae:
                 if generate:
                             if t_inject is not None: # T_Inject aims to assess the effect of manipulated injections at different timesteps
@@ -791,21 +807,7 @@ class Sampler:
                     # Reconstruction with encoded latent from x0 ground truth
                     xtm1 = self.degradation.degrade(x0, t_tensor-1) # Adaption due to explanation below (0 indexing)
                     pred = model(xt, t_tensor, xtm1)
-            else:
-                if self.vae_xt:
-                    
-                    # Sample from VAE prior (and repeat to match image dimensions in necessary)
-                    latent_dim = (model.channels * model.image_size * model.image_size) // self.vae_downsample
-                    noise = torch.randn((batch_size, latent_dim), device=self.device) * self.noise_scale
-
-                    bs, ch, res = xt.shape[0], xt.shape[1], xt.shape[2]
-                    noise = noise.reshape(bs, ch, res, res) * self.noise_scale
-                    
-                    if self.vae_downsample > 1:
-                        noise = noise.repeat(1, self.vae_downsample) # Flattened image latents, repeated on non-batch dimensions
-
-                    xt = xt + noise
-                    
+            else:                    
                 pred = model(xt, t_tensor)
 
             # BANSAL ALGORITHM 2

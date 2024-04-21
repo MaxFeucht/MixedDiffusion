@@ -263,6 +263,7 @@ class VAEUNet(nn.Module):
                  image_size):
         super().__init__()
         self.ch = ch
+        self.ch_mult = ch_mult
         self.temb_ch = self.ch*4
         self.num_resolutions = len(ch_mult)
         self.num_res_blocks = num_res_blocks

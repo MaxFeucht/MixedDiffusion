@@ -205,9 +205,6 @@ def main(**kwargs):
 
 
     if kwargs['vae']:
-        if kwargs['vae_full']:   
-            from scripts.vae_unet_full import VAEUNet
-
         unet = VAEUNet(image_size=imsize,
                         channels=channels,
                         out_ch=channels,
@@ -251,7 +248,7 @@ def main(**kwargs):
     # Load Checkpoint
     if kwargs['load_checkpoint']:
         try:
-            chkpt = torch.load(os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['timesteps']}_{kwargs['prediction']}{ema_flag}.pt"))
+            chkpt = torch.load(os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['timesteps']}_{kwargs['prediction']}{ema_flag}.pt"), map_location=kwargs['device'])
             trainer.model.load_state_dict(chkpt['model_state_dict'])
             trainer.optimizer.load_state_dict(chkpt['optimizer_state_dict'])
             trainer.model_ema.load_state_dict(chkpt['ema_state_dict'])
@@ -305,12 +302,10 @@ def main(**kwargs):
                                                                     generate=True, 
                                                                     batch_size = kwargs['n_samples'])
 
-                if kwargs['vae_full']:
-                    prior = torch.randn(kwargs['n_samples'], channels, imsize, imsize).to(kwargs['device'])
-                else:
-                    prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
-                    #res = imsize//2**kwargs['num_downsamples']
-                    #prior = torch.randn(kwargs['n_samples'], res, res).to(kwargs['device'])
+
+                prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
+                #res = imsize//2**kwargs['num_downsamples']
+                #prior = torch.randn(kwargs['n_samples'], res, res).to(kwargs['device'])
                 
                 gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model, 
                                                                         batch_size = kwargs['n_samples'], 
@@ -349,18 +344,18 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=20, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
     parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
-    parser.add_argument('--epochs', '--e', type=int, default=10, help='Number of Training Epochs')
+    parser.add_argument('--epochs', '--e', type=int, default=300, help='Number of Training Epochs')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
-    parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method, choose one of [x0, xtm1, residual]')
+    parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
     parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
-    parser.add_argument('--cluster', action='store_true', help='Whether to run script locally')
+    parser.add_argument('--cluster', action='store_false', help='Whether to run script locally')
     parser.add_argument('--n_samples', type=int, default=60, help='Number of samples to generate')
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
     parser.add_argument('--fix_sample', action='store_false', help='Whether to fix x_T for sampling, to see sample progression')
@@ -373,12 +368,12 @@ if __name__ == "__main__":
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
     parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.9, help='Trade-off parameter for normality of VAE noise injections')
-    parser.add_argument('--vae_full', action='store_true', help='Whether to use full resolution VAE injections')
-    parser.add_argument('--vae_downsample', type=float, help='To which degree to downsample and repeat the VAE noise injections')
+    parser.add_argument('--vae_full', action='store_false', help='Whether to use full resolution VAE injections')
+    parser.add_argument('--vae_downsample', type=float, default = 1, help='To which degree to downsample and repeat the VAE noise injections')
 
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the input')
-    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
 
     args = parser.parse_args()
 
@@ -388,8 +383,8 @@ if __name__ == "__main__":
     if args.vae:
         print("Using VAE Noise Injections" if not args.vae_full else "Using Full Resolution VAE Noise Injections")
         assert not args.add_noise, "Cannot use VAE and add noise at the same time"
-        if args.vae_full:
-            assert args.noise_scale == 0.0, "Noise scale must be 0 for full resolution VAE"
+        #if args.vae_full:
+            #assert args.noise_scale == 0.0, "Noise scale must be 0 for full resolution VAE"
     else:
         if args.vae_full:
             print("Using External Full Resolution VAE")
