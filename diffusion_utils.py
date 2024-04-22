@@ -806,14 +806,17 @@ class Sampler:
 
             if self.vae:
                 if generate:
-                            if t_inject is not None: # T_Inject aims to assess the effect of manipulated injections at different timesteps
-                                pred = model(xt, t_tensor, xtm1=None, prior=prior if t == t_inject else None)
-                            else: # If no t_inject is provided, we always use the provided prior
-                                pred = model(xt, t_tensor, xtm1=None, prior=prior)
+                    if t_inject is not None: # T_Inject aims to assess the effect of manipulated injections at different timestep
+                        pred = model(xt, t_tensor, xtm1=None, prior=prior if t == t_inject else None)
+                    else: # If no t_inject is provided, we always use the provided prior
+                        pred = model(xt, t_tensor, xtm1=None, prior=prior)
                 else:
                     # Reconstruction with encoded latent from x0 ground truth
-                    xtm1 = self.degradation.degrade(x0, t_tensor-1) # Adaption due to explanation below (0 indexing)
+                    xtm1 = self.degradation.degrade(x0, t_tensor-1) # Adaption due to explanation below (0 indexing) 
                     pred = model(xt, t_tensor, xtm1)
+                
+                xt = xt + model.vae_noise
+                
             else:                    
                 pred = model(xt, t_tensor)
 
