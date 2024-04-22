@@ -21,7 +21,9 @@ from unet import UNet
 from mnist_unet import MNISTUnet
 #from scripts.karras_unet import KarrasUnet
 from scripts.bansal_unet import BansalUnet
-from scripts.vae_unet import VAEUNet
+#from scripts.vae_unet import VAEUNet
+from scripts.vae_unet_full import VAEUNet
+
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
 from utils import create_dirs, save_video, save_gif, MyCelebA
 
@@ -212,6 +214,7 @@ def main(**kwargs):
                         ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
                         num_res_blocks=2,
                         attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
+                        latent_dim=channels*imsize*imsize//kwargs['vae_downsample'],
                         dropout=0)
     else:
         unet = BansalUnet(image_size=imsize,
@@ -303,7 +306,10 @@ def main(**kwargs):
                                                                     batch_size = kwargs['n_samples'])
 
 
-                prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
+                #prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
+                latent_dim = channels*imsize*imsize//kwargs['vae_downsample'] 
+                prior = torch.randn(kwargs['n_samples'], latent_dim).to(kwargs['device'])
+
                 #res = imsize//2**kwargs['num_downsamples']
                 #prior = torch.randn(kwargs['n_samples'], res, res).to(kwargs['device'])
                 
@@ -366,14 +372,14 @@ if __name__ == "__main__":
     parser.add_argument('--kernel_size', type=int, default=3, help='Number of training steps')
     parser.add_argument('--kernel_std', type=float, default=0.1, help='Number of training steps')
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
-    parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
+    parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.9, help='Trade-off parameter for normality of VAE noise injections')
-    parser.add_argument('--vae_full', action='store_false', help='Whether to use full resolution VAE injections')
+    parser.add_argument('--vae_full', action='store_true', help='Whether to use full resolution VAE injections')
     parser.add_argument('--vae_downsample', type=float, default = 56, help='To which degree to downsample and repeat the VAE noise injections')
 
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the input')
-    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
 
     args = parser.parse_args()
 

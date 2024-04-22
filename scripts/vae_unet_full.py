@@ -205,14 +205,14 @@ class VAEEncoder(nn.Module):
                                        stride=1,
                                        padding=1)
         
-        # Provisoric timestep embedding
-        self.temb = nn.Module()
-        self.temb.dense = nn.ModuleList([
-            torch.nn.Linear(self.dim,
-                            self.dim*4),
-            torch.nn.Linear(self.dim*4,
-                            self.dim*4),
-        ])
+        # # Provisoric timestep embedding
+        # self.temb = nn.Module()
+        # self.temb.dense = nn.ModuleList([
+        #     torch.nn.Linear(self.dim,
+        #                     self.dim*4),
+        #     torch.nn.Linear(self.dim*4,
+        #                     self.dim*4),
+        # ])
 
         curr_res = image_size
         in_dim_mult = (1,)+dim_mult
@@ -243,11 +243,11 @@ class VAEEncoder(nn.Module):
     def forward(self, xt, xtm1, temb):
         assert xt.shape[2] == xt.shape[3] == self.image_size
 
-        # Provisoric timestep embedding
-        temb = get_timestep_embedding(temb, self.dim)
-        temb = self.temb.dense[0](temb)
-        temb = nonlinearity(temb)
-        temb = self.temb.dense[1](temb)
+        # # Provisoric timestep embedding
+        # temb = get_timestep_embedding(temb, self.dim)
+        # temb = self.temb.dense[0](temb)
+        # temb = nonlinearity(temb)
+        # temb = self.temb.dense[1](temb)
 
         # Combine the two images
         x = torch.cat([xt, xtm1], dim=1)
@@ -272,10 +272,12 @@ class VAEEncoder(nn.Module):
         return mean, logvar
     
 
+
+
 class VAEUNet(nn.Module):
     def __init__(self, *, ch, out_ch, ch_mult=(1,2,2,2), num_res_blocks,
                  attn_resolutions, dropout=0.0, resamp_with_conv=True, channels,
-                 image_size):
+                 image_size, latent_dim=None):
         super().__init__()
         self.ch = ch
         self.temb_ch = self.ch*4
@@ -283,6 +285,7 @@ class VAEUNet(nn.Module):
         self.num_res_blocks = num_res_blocks
         self.image_size = image_size
         self.channels = channels
+        self.latent_dim = latent_dim
 
         # timestep embedding
         self.temb = nn.Module()
@@ -307,7 +310,7 @@ class VAEUNet(nn.Module):
         # VAE injection
         self.vae_encoder = VAEEncoder(dim=ch, 
                                 dim_mult=ch_mult, 
-                                latent_dim=channels*image_size*image_size, # Returns flattened image latents
+                                latent_dim=latent_dim, # Returns flattened image latents
                                 image_size=image_size, 
                                 channels=channels, 
                                 temb_channels=self.temb_ch,
@@ -418,12 +421,18 @@ class VAEUNet(nn.Module):
                 # If feature map is not of batch size, resize z_sample
                 if prior.shape[0] != xt.shape[0]:
                     z_sample = z_sample[:xt.shape[0]]
-             
+        
+        # Bring downsampled latent to the same shape as the last feature map
+        if z_sample.flatten(1).shape[-1] < xt.flatten(1).shape[-1]:
+            multiplier = xt.flatten(1).shape[-1] // z_sample.flatten(1).shape[-1]
+            z_sample = z_sample.repeat(1, multiplier) # Flattened image latents, repeated on non-batch dimensions
+
         # Bring latent to the same shape as the last feature map
         bs, depth, res = xt.shape[0], xt.shape[1], xt.shape[2]
         z_sample = z_sample.reshape(bs, depth, res, res) #.expand(-1, depth, -1, -1) # We only expand after we're certain that the VAE injections work on full scale
+        self.vae_noise = 0.01 * z_sample # Assigning to self.vae_output for outside access
 
-        xt = xt + 0.01 * z_sample # Delete this line after testing
+        xt = xt + self.vae_noise # Delete this line after testing
 
         # downsampling
         hs = [self.conv_in(xt)]
@@ -457,3 +466,88 @@ class VAEUNet(nn.Module):
         h = nonlinearity(h)
         h = self.conv_out(h)
         return h
+    
+
+
+class VAEEncoderStandAlone(nn.Module):
+
+    def __init__(self, *, dim, dim_mult=(1,2,2,2), latent_dim, image_size, channels, temb_channels, dropout):
+        super().__init__()
+        self.dim = dim
+        self.num_resolutions = len(dim_mult)
+        self.image_size = image_size
+        self.channels = channels
+
+        # downsampling
+        self.conv_in = torch.nn.Conv2d(channels*2, # *2 for concatenation of two images
+                                       self.dim,
+                                       kernel_size=3,
+                                       stride=1,
+                                       padding=1)
+        
+        # Provisoric timestep embedding
+        self.temb = nn.Module()
+        self.temb.dense = nn.ModuleList([
+            torch.nn.Linear(self.dim,
+                            self.dim*4),
+            torch.nn.Linear(self.dim*4,
+                            self.dim*4),
+        ])
+
+        curr_res = image_size
+        in_dim_mult = (1,)+dim_mult
+        self.down = nn.ModuleList()
+        for i_level in range(self.num_resolutions):
+            downblock = nn.Module()
+            downblock.resblock = ResnetBlock(channels=self.dim*in_dim_mult[i_level], 
+                                             out_channels=self.dim*dim_mult[i_level],
+                                             dropout=dropout, temb_channels=temb_channels)
+            if i_level != self.num_resolutions-1:
+                downblock.downsample = Downsample(self.dim*dim_mult[i_level], with_conv=True)
+                curr_res = curr_res // 2
+            self.down.append(downblock)
+
+        # final block
+        self.norm_out = Normalize(self.dim*dim_mult[i_level])
+        self.conv_out = torch.nn.Conv2d(self.dim*dim_mult[i_level],
+                                        self.dim*dim_mult[-1],
+                                        kernel_size=3,
+                                        stride=1,
+                                        padding=1)
+
+        # dense layers for mean and logvar
+        self.dense_mean = torch.nn.Linear(self.dim*dim_mult[-1]*curr_res*curr_res, latent_dim)
+        self.dense_logvar = torch.nn.Linear(self.dim*dim_mult[-1]*curr_res*curr_res, latent_dim)
+    
+
+    def forward(self, xt, xtm1, temb):
+        assert xt.shape[2] == xt.shape[3] == self.image_size
+
+        # Provisoric timestep embedding
+        temb = get_timestep_embedding(temb, self.dim)
+        temb = self.temb.dense[0](temb)
+        temb = nonlinearity(temb)
+        temb = self.temb.dense[1](temb)
+
+        # Combine the two images
+        x = torch.cat([xt, xtm1], dim=1)
+
+        # downsampling
+        h = self.conv_in(x)
+        for i_level in range(self.num_resolutions):
+            h = self.down[i_level].resblock(h, temb)
+            if i_level != self.num_resolutions-1:
+                h = self.down[i_level].downsample(h)
+
+        # final block
+        h = self.norm_out(h)
+        h = nonlinearity(h)
+        h = self.conv_out(h)
+
+        # dense layers for mean and logvar
+        h = h.view(h.size(0), -1)
+        mean = self.dense_mean(h)
+        logvar = self.dense_logvar(h)
+
+        return mean, logvar
+    

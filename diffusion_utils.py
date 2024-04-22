@@ -12,7 +12,7 @@ import os
 import dct_blur as torch_dct
 import numpy as np
 
-from scripts.vae_unet_full import VAEEncoder
+from scripts.vae_unet_full import VAEEncoderStandAlone as VAEEncoder
 
 import warnings
 
@@ -534,11 +534,18 @@ class Trainer:
         # Get Model prediction with correct output and select appropriate loss
         if self.vae: 
             model_pred = self.model(x_t, t, x_tm1) # VAE Model needs x_tm1 for prediction. Important: x_tm1 is needed for VAE to run in training mode
+
+            # Testing to include VAE Noise into Loss, just as in Risannen. 
+            # We do this by adding the noise to x_t and let the model optimize for the difference between the perturbed x_t and xtm1.
+            x_t = x_t + self.model.vae_noise 
+
             pred = (x_t + model_pred) if self.prediction == 'xtm1' else model_pred # According to Risannen, the model predicts the residual
+            
             reconstruction = self.loss.mse_loss(target, pred)
             kl_div = self.model.kl_div
             loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div)
             return loss, reconstruction, kl_div
+        
         else:
 
             # Full scale external VAE injection
@@ -802,7 +809,7 @@ class Sampler:
                             if t_inject is not None: # T_Inject aims to assess the effect of manipulated injections at different timesteps
                                 pred = model(xt, t_tensor, xtm1=None, prior=prior if t == t_inject else None)
                             else: # If no t_inject is provided, we always use the provided prior
-                                    pred = model(xt, t_tensor, xtm1=None, prior=prior)
+                                pred = model(xt, t_tensor, xtm1=None, prior=prior)
                 else:
                     # Reconstruction with encoded latent from x0 ground truth
                     xtm1 = self.degradation.degrade(x0, t_tensor-1) # Adaption due to explanation below (0 indexing)
