@@ -403,6 +403,12 @@ class VAEUNet(nn.Module):
             # VAE Encoder
             mu, logvar = self.vae_encoder(xt, xtm1, temb)
 
+            # Bring latent parameters to the same shape as the last feature map
+            if mu.flatten(1).shape[-1] < xt.flatten(1).shape[-1]:
+                multiplier = xt.flatten(1).shape[-1] // mu.flatten(1).shape[-1]
+                mu = mu.repeat(1, multiplier) # Flattened image latents, repeated on non-batch dimensions
+                logvar = logvar.repeat(1, multiplier) # Flattened image latents, repeated on non-batch dimensions
+
             # Reparameterization trick
             z_sample = torch.randn_like(mu) * torch.exp(0.5*logvar) + mu
 

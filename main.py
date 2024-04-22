@@ -307,7 +307,7 @@ def main(**kwargs):
 
 
                 #prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
-                latent_dim = int(channels*imsize*imsize//kwargs['vae_downsample'])
+                latent_dim = int(channels*imsize*imsize)#//kwargs['vae_downsample'])
                 prior = torch.randn(kwargs['n_samples'], latent_dim).to(kwargs['device'])
 
                 #res = imsize//2**kwargs['num_downsamples']
