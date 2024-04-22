@@ -543,7 +543,7 @@ class Trainer:
             
             reconstruction = self.loss.mse_loss(target, pred)
             kl_div = self.model.kl_div
-            loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div)
+            loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div) #* self.noise_scale)
             return loss, reconstruction, kl_div
         
         else:
@@ -816,7 +816,7 @@ class Sampler:
                     pred = model(xt, t_tensor, xtm1)
                 
                 xt = xt + model.vae_noise
-                
+
             else:                    
                 pred = model(xt, t_tensor)
 

@@ -277,7 +277,7 @@ class VAEEncoder(nn.Module):
 class VAEUNet(nn.Module):
     def __init__(self, *, ch, out_ch, ch_mult=(1,2,2,2), num_res_blocks,
                  attn_resolutions, dropout=0.0, resamp_with_conv=True, channels,
-                 image_size, latent_dim=None):
+                 image_size, noise_scale, latent_dim=None):
         super().__init__()
         self.ch = ch
         self.temb_ch = self.ch*4
@@ -286,6 +286,7 @@ class VAEUNet(nn.Module):
         self.image_size = image_size
         self.channels = channels
         self.latent_dim = latent_dim
+        self.noise_scale = noise_scale
 
         # timestep embedding
         self.temb = nn.Module()
@@ -436,7 +437,7 @@ class VAEUNet(nn.Module):
         # Bring latent to the same shape as the last feature map
         bs, depth, res = xt.shape[0], xt.shape[1], xt.shape[2]
         z_sample = z_sample.reshape(bs, depth, res, res) #.expand(-1, depth, -1, -1) # We only expand after we're certain that the VAE injections work on full scale
-        self.vae_noise = 0.01 * z_sample # Assigning to self.vae_output for outside access
+        self.vae_noise = self.noise_scale * z_sample # Assigning to self.vae_output for outside access
 
         xt = xt + self.vae_noise # Delete this line after testing
 

@@ -215,6 +215,7 @@ def main(**kwargs):
                         num_res_blocks=2,
                         attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
                         latent_dim=int(channels*imsize*imsize//kwargs['vae_downsample']),
+                        noise_scale=kwargs['noise_scale'],
                         dropout=0)
     else:
         unet = BansalUnet(image_size=imsize,
