@@ -429,9 +429,9 @@ class VAEUNet(nn.Module):
                     z_sample = z_sample[:xt.shape[0]]
         
         # Bring downsampled latent to the same shape as the last feature map
-        if z_sample.flatten(1).shape[-1] < xt.flatten(1).shape[-1]:
-            multiplier = xt.flatten(1).shape[-1] // z_sample.flatten(1).shape[-1]
-            z_sample = z_sample.repeat(1, multiplier) # Flattened image latents, repeated on non-batch dimensions
+        # if z_sample.flatten(1).shape[-1] < xt.flatten(1).shape[-1]:
+        #     multiplier = xt.flatten(1).shape[-1] // z_sample.flatten(1).shape[-1]
+        #     z_sample = z_sample.repeat(1, multiplier) # Flattened image latents, repeated on non-batch dimensions
 
         # Bring latent to the same shape as the last feature map
         bs, depth, res = xt.shape[0], xt.shape[1], xt.shape[2]
