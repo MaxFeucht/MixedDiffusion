@@ -506,8 +506,8 @@ class Trainer:
             x_t = self.degrader.degrade(x_0, t) 
             
             # Add noise to degrade with - Noise injection a la Bansal
-            if not self.vae_xt:
-                x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
+            # if not self.vae_xt:
+            #     x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
 
             x_tm1 = self.degrader.degrade(x_0, t-1)
             residual = x_tm1 - x_t 

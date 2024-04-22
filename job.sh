@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=down_28
+#SBATCH --job-name=int_1
 #SBATCH --time=1:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
@@ -59,7 +59,7 @@ model_ema_decay=0.995
 num_train_steps=700000
 vae_alpha=0.9
 noise_scale=0.01
-vae_downsample=28
+vae_downsample=1
 
 
 
@@ -69,5 +69,5 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --num_train_steps $num_train_steps \
                                                 --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay --noise_scale $noise_scale \
-                                                --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster --vae_full ##--vae #--load_checkpoint
+                                                --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster ##--vae #--load_checkpoint
 echo "Script finished"

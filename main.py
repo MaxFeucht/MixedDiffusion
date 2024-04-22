@@ -372,7 +372,7 @@ if __name__ == "__main__":
     parser.add_argument('--kernel_size', type=int, default=3, help='Number of training steps')
     parser.add_argument('--kernel_std', type=float, default=0.1, help='Number of training steps')
     parser.add_argument('--blur_routine', type=str, default='exponential', help='Number of training steps')
-    parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
+    parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.9, help='Trade-off parameter for normality of VAE noise injections')
     parser.add_argument('--vae_full', action='store_true', help='Whether to use full resolution VAE injections')
     parser.add_argument('--vae_downsample', type=float, default = 56, help='To which degree to downsample and repeat the VAE noise injections')
