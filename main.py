@@ -214,7 +214,7 @@ def main(**kwargs):
                         ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
                         num_res_blocks=2,
                         attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
-                        latent_dim=channels*imsize*imsize//kwargs['vae_downsample'],
+                        latent_dim=int(channels*imsize*imsize//kwargs['vae_downsample']),
                         dropout=0)
     else:
         unet = BansalUnet(image_size=imsize,
@@ -307,7 +307,7 @@ def main(**kwargs):
 
 
                 #prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
-                latent_dim = channels*imsize*imsize//kwargs['vae_downsample'] 
+                latent_dim = int(channels*imsize*imsize//kwargs['vae_downsample'])
                 prior = torch.randn(kwargs['n_samples'], latent_dim).to(kwargs['device'])
 
                 #res = imsize//2**kwargs['num_downsamples']
@@ -379,7 +379,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the input')
-    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
 
     args = parser.parse_args()
 

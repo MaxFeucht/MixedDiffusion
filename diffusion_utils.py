@@ -487,7 +487,7 @@ class Trainer:
         if self.vae_xt:
 
             latent_dim = model.channels * model.image_size * model.image_size
-            latent_dim = latent_dim // kwargs['vae_downsample'] 
+            latent_dim = int(latent_dim // kwargs['vae_downsample'])
 
             self.vae_model = VAEEncoder(dim=model.ch, 
                             dim_mult=model.ch_mult, 
