@@ -94,7 +94,7 @@ class Degradation:
     def __init__(self, timesteps, degradation, noise_schedule, dataset, **kwargs):
         
         self.timesteps = timesteps
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
+        self.device = kwargs['device']
 
         
         assert degradation in ['noise', 'blur', 'fadeblack', 'fadeblack_blur'], 'Invalid degradation type, choose from noise, blur, fadeblack, fadeblack_blur'
@@ -113,6 +113,13 @@ class Degradation:
             
         self.blur = Blurring(**blur_kwargs)
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
+
+        dct_sigma_min = 0.5 if dataset == 'mnist' else 0.5
+        dct_sigma_max = 20.0 if dataset == 'mnist' else 1.0
+        image_size = 28 if dataset == 'mnist' else 32
+        self.dct_sigmas = torch.linspace(dct_sigma_min, dct_sigma_max, timesteps, device=self.device)
+
+        self.dct_blur = DCTBlur(self.dct_sigmas, image_size, self.device)
 
 
     def noising(self, x_0, t, noise = None):
@@ -191,10 +198,8 @@ class Degradation:
 
     def dct_blurring(self, x_0, t):
 
-        sigmas = self.blur.dct_sigmas
-
         if not hasattr(self, 'dct_blur'):
-            self.dct_blur = DCTBlur(sigmas, x_0.shape[-1], self.device)
+            self.dct_blur = DCTBlur(self.dct_sigmas, x_0.shape[-1], self.device)
 
         xt = self.dct_blur(x_0, t).float()
         return xt
@@ -242,11 +247,11 @@ class Degradation:
         if self.degradation == 'noise':
             return self.noising(x, t, noise)
         elif self.degradation == 'blur':
-            return self.blurring(x, t)
+            return self.dct_blurring(x, t)
         elif self.degradation == 'fadeblack':
             return self.blacking(x, t)
         elif self.degradation == 'fadeblack_blur':
-            return self.blacking(self.blurring(x, t),t)
+            return self.blacking(self.dct_blurring(x, t),t)
 
 
 class Blurring:
@@ -505,9 +510,9 @@ class Trainer:
         if self.deterministic:
             x_t = self.degrader.degrade(x_0, t) 
             
-            # Add noise to degrade with - Noise injection a la Bansal
-            # if not self.vae_xt:
-            #     x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
+            # Add noise to degrade with - Noise injection a la Risannen
+            if not self.vae_xt:
+                x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
 
             x_tm1 = self.degrader.degrade(x_0, t-1)
             residual = x_tm1 - x_t 
@@ -525,8 +530,6 @@ class Trainer:
             ret_x0 = True
         elif self.prediction == 'xtm1':
             assert self.deterministic, 'xtm1 prediction not compatible with denoising diffusion'
-            # if t[0].item() == 0:
-            #     assert torch.all(torch.eq(x_tm1[0], x_0[0])), 'x_tm1 not equal to x_0 for last step'
             target = x_tm1
         else:
             raise ValueError('Invalid prediction type')
@@ -548,20 +551,20 @@ class Trainer:
         
         else:
 
-            # Full scale external VAE injection
-            if self.vae_xt:
-                vae_mu, vae_logvar = self.vae_model(x_t, x_tm1, t)
-                z_sample = torch.randn_like(vae_mu) * torch.exp(0.5*vae_logvar) + vae_mu
+            # # Full scale external VAE injection
+            # if self.vae_xt:
+            #     vae_mu, vae_logvar = self.vae_model(x_t, x_tm1, t)
+            #     z_sample = torch.randn_like(vae_mu) * torch.exp(0.5*vae_logvar) + vae_mu
 
-                # Repeat z_sample to match image dimensions
-                if self.vae_downsample > 1:
-                    z_sample = z_sample.repeat(1, self.vae_downsample) # Flattened image latents, repeated on non-batch dimensions
+            #     # Repeat z_sample to match image dimensions
+            #     if self.vae_downsample > 1:
+            #         z_sample = z_sample.repeat(1, self.vae_downsample) # Flattened image latents, repeated on non-batch dimensions
 
-                # KL Divergence for VAE Encoder
-                kl_div = 0.5 * (vae_mu.pow(2) + vae_logvar.exp() - 1 - vae_logvar).sum(1).mean()
+            #     # KL Divergence for VAE Encoder
+            #     kl_div = 0.5 * (vae_mu.pow(2) + vae_logvar.exp() - 1 - vae_logvar).sum(1).mean()
 
-                bs, ch, res = x_t.shape[0], x_t.shape[1], x_t.shape[2]
-                x_t = x_t + z_sample.reshape(bs, ch, res, res) * self.noise_scale
+            #     bs, ch, res = x_t.shape[0], x_t.shape[1], x_t.shape[2]
+            #     x_t = x_t + z_sample.reshape(bs, ch, res, res) * self.noise_scale
 
             model_pred = self.model(x_t, t)
 
@@ -633,7 +636,7 @@ class Sampler:
         self.reconstruction = Reconstruction(timesteps=timesteps, prediction=prediction, degradation = degradation, noise_schedule=noise_schedule, **kwargs)
         self.prediction = prediction
         self.timesteps = timesteps
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'mps')
+        self.device = kwargs['device']
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.black = True if degradation in ['fadeblack', 'fadeblack_blur'] else False
         self.gmm = None
@@ -815,9 +818,12 @@ class Sampler:
                     xtm1 = self.degradation.degrade(x0, t_tensor-1) # Adaption due to explanation below (0 indexing) 
                     pred = model(xt, t_tensor, xtm1)
                 
-                xt = xt + model.vae_noise
+                #xt = xt + model.vae_noise
 
-            else:                    
+            else:
+
+                xt = xt + torch.randn_like(xt, device=self.device) * self.noise_scale     
+
                 pred = model(xt, t_tensor)
 
             # BANSAL ALGORITHM 2
@@ -843,7 +849,6 @@ class Sampler:
                 #     x0_hat = self.degradation.degrade(xt, t_tensor-1)
                 #     samples.append(x0_hat)
 
-        
 
             # OURS with residual prediction
             elif self.prediction == 'residual':
