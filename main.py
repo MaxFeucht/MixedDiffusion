@@ -380,7 +380,7 @@ if __name__ == "__main__":
 
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the input')
-    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
 
     args = parser.parse_args()
 
