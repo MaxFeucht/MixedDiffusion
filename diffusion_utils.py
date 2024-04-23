@@ -977,7 +977,7 @@ class DCTBlur(nn.Module):
 
     def __init__(self, blur_sigmas, image_size, device):
         super(DCTBlur, self).__init__()
-        self.blur_sigmas = torch.tensor(blur_sigmas).to(device)
+        self.blur_sigmas = blur_sigmas.clone().detach().to(device)
         freqs = np.pi*torch.linspace(0, image_size-1,
                                     image_size).to(device)/image_size
         self.frequencies_squared = freqs[:, None]**2 + freqs[None, :]**2
@@ -990,7 +990,9 @@ class DCTBlur(nn.Module):
         t = sigmas**2/2
         dct_coefs = torch_dct.dct_2d(x, norm='ortho')
         dct_coefs = dct_coefs * torch.exp(- self.frequencies_squared * t)
-        return torch_dct.idct_2d(dct_coefs, norm='ortho')
+        dct_blurred = torch_dct.idct_2d(dct_coefs, norm='ortho')
+        dct_output = torch.where(fwd_steps == -1, x, dct_blurred) # Keep the original image for t=-1 (needed for Bansal style sampling)
+        return dct_output
 
 
 

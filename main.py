@@ -245,6 +245,15 @@ def main(**kwargs):
     if kwargs['fix_sample']:
         sampler.sample_x_T(kwargs['n_samples'], channels, imsize)
 
+        # Fix Prior for VAE
+        latent_dim = int(channels*imsize*imsize)#//kwargs['vae_downsample'])
+        prior = torch.randn(kwargs['n_samples'], latent_dim).to(kwargs['device'])
+        
+        #prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
+        #res = imsize//2**kwargs['num_downsamples']
+        #prior = torch.randn(kwargs['n_samples'], res, res).to(kwargs['device'])
+        
+
     # Create directories
     imgpath, modelpath = create_dirs(**kwargs)
     ema_flag = '' if kwargs['skip_ema'] else '_ema'
@@ -306,14 +315,7 @@ def main(**kwargs):
                                                                     generate=True, 
                                                                     batch_size = kwargs['n_samples'])
 
-
-                #prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
-                latent_dim = int(channels*imsize*imsize)#//kwargs['vae_downsample'])
-                prior = torch.randn(kwargs['n_samples'], latent_dim).to(kwargs['device'])
-
-                #res = imsize//2**kwargs['num_downsamples']
-                #prior = torch.randn(kwargs['n_samples'], res, res).to(kwargs['device'])
-                
+                # Prior is defined above under "fix_sample"
                 gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model, 
                                                                         batch_size = kwargs['n_samples'], 
                                                                         generate=True, 
