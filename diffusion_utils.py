@@ -114,10 +114,14 @@ class Degradation:
         self.blur = Blurring(**blur_kwargs)
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
 
-        dct_sigma_min = 0.5 if dataset == 'mnist' else 0.5
-        dct_sigma_max = 20.0 if dataset == 'mnist' else 1.0
+        dct_sigma_min = 0.5 if dataset == 'mnist' else 0.5 # Only CIFAR-10 is tested for now as alternative
+        dct_sigma_max = 20.0 if dataset == 'mnist' else 24.0
         image_size = 28 if dataset == 'mnist' else 32
-        self.dct_sigmas = torch.linspace(dct_sigma_min, dct_sigma_max, timesteps, device=self.device)
+        self.dct_sigmas = torch.exp(torch.linspace(np.log(dct_sigma_min),
+                                             np.log(dct_sigma_max), timesteps, device=self.device))
+        
+        # Add zero sigma for the first timestep
+        #self.dct_sigmas = torch.tensor([0] + list(self.dct_sigmas))
 
         self.dct_blur = DCTBlur(self.dct_sigmas, image_size, self.device)
 
@@ -141,7 +145,7 @@ class Degradation:
         return x_t
 
 
-    def blurring(self, x_0, t):
+    def bansal_blurring(self, x_0, t):
         """
         Function to blur an image x at time t.
         
@@ -252,6 +256,10 @@ class Degradation:
             return self.blacking(x, t)
         elif self.degradation == 'fadeblack_blur':
             return self.blacking(self.dct_blurring(x, t),t)
+        elif self.degradation == 'blur_bansal':
+            return self.bansal_blurring(x, t)
+        elif self.degradation == 'fadeblack_blur_bansal':
+            return self.blacking(self.bansal_blurring(x, t),t)
 
 
 class Blurring:
@@ -991,8 +999,8 @@ class DCTBlur(nn.Module):
         dct_coefs = torch_dct.dct_2d(x, norm='ortho')
         dct_coefs = dct_coefs * torch.exp(- self.frequencies_squared * t)
         dct_blurred = torch_dct.idct_2d(dct_coefs, norm='ortho')
-        dct_output = torch.where(fwd_steps == -1, x, dct_blurred) # Keep the original image for t=-1 (needed for Bansal style sampling)
-        return dct_output
+        dct_blurred[fwd_steps == -1] = x[fwd_steps == -1] # Keep the original image for t=-1 (needed for Bansal style sampling)
+        return dct_blurred
 
 
 
