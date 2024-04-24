@@ -19,9 +19,7 @@ from torchvision.utils import save_image
 
 from unet import UNet
 from mnist_unet import MNISTUnet
-#from scripts.karras_unet import KarrasUnet
 from scripts.bansal_unet import BansalUnet
-#from scripts.vae_unet import VAEUNet
 from scripts.vae_unet_full import VAEUNet
 
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
@@ -323,7 +321,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diffusion Models')
 
     # General Diffusion Parameters
-    parser.add_argument('--timesteps', '--t', type=int, default=20, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=5, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
@@ -389,17 +387,4 @@ if __name__ == "__main__":
     # Finish wandb run
     wandb.finish()
 
-    
-
-
-# To Do Today:
-
-# Debug Blurring Diffusion by comparing training and sampling 1:1 with Bansal et al.
-
-
-
-
-### Difference: ema.module vs. unet - trainer.model vs. unet - currently investigated: No!
-    # Small Batch Size
-    # Only 25 timesteps - currently investigated: No!
-    # 
+    print("Finished Training")

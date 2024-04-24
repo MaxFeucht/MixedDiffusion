@@ -87,6 +87,7 @@ class Scheduler:
         if type == 'cifar':
             return torch.arange(timesteps, dtype=torch.float32)/100 + 0.35
     
+
     def get_dct_sigmas(self, timesteps, dataset):
 
         dct_sigma_min = 0.5 if dataset == 'mnist' else 0.5 # Only CIFAR-10 is tested for now as alternative
@@ -94,6 +95,22 @@ class Scheduler:
         dct_sigmas = torch.exp(torch.linspace(np.log(dct_sigma_min),
                                              np.log(dct_sigma_max), timesteps, device=self.device))
         return dct_sigmas
+
+
+    def get_black_schedule(self, timesteps, factor, mode):
+        
+        t_range = torch.arange(timesteps, dtype=torch.float32)
+
+        if mode == 'linear':
+            coefs = (1 - (t_range+1) / (timesteps)).reshape(-1, 1, 1, 1)  # +1 bc of zero indexing
+        
+        elif mode == 'exponential':
+            coefs = factor ** (t_range)  
+            coefs[t_range == self.timesteps-1] = 0.0
+            coefs.reshape(-1, 1, 1, 1)
+        
+        return coefs.to(self.device)
+
 
 
        
@@ -105,7 +122,7 @@ class Degradation:
         
         self.timesteps = timesteps
         self.device = kwargs['device']
-
+        scheduler = Scheduler(device = self.device)
         
         assert degradation in ['noise', 'blur', 'fadeblack', 'fadeblack_blur'], 'Invalid degradation type, choose from noise, blur, fadeblack, fadeblack_blur'
         self.degradation = degradation
@@ -114,6 +131,9 @@ class Degradation:
         
         # Denoising
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
+
+        # Blacking
+        self.blacking_coefs = scheduler.get_black_schedule(timesteps = timesteps, factor = 0.95, mode = 'linear')
 
         # Blurring
         blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
@@ -210,7 +230,7 @@ class Degradation:
         
 
 
-    def blacking(self, x_0, t, factor = 0.95, mode = 'linear'):
+    def blacking(self, x_0, t):
         """
         Function to fade an image x to black at time t.
         
@@ -218,20 +238,8 @@ class Degradation:
         :param int t: The time step
         :return torch.Tensor: The degraded image at time t
         """
-        # if t == self.timesteps-1:
-        #     multiplier = 0.0
-        # else:
-        #     multiplier = factor ** (t)  # +1 bc of zero indexing
-        
-        if mode == 'linear':
-            multiplier = (1 - (t+1) / (self.timesteps)).reshape(-1, 1, 1, 1)  # +1 bc of zero indexing
-        
-        elif mode == 'exponential':
-            if t == self.timesteps-1:
-                multiplier = 0.0
-            else:
-                multiplier = factor ** (t)  # +1 bc of zero indexing
 
+        multiplier = self.blacking_coefs[t]
         x_t = multiplier * x_0 
         return x_t
     
@@ -576,7 +584,6 @@ class Trainer:
             
             # Sample t
             t = torch.randint(0, self.timesteps, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
-            #t = torch.randint(10, 11, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
 
             if self.vae:
                 loss, reconstruction, kl_div = self.train_iter(x_0, t)
@@ -587,7 +594,7 @@ class Trainer:
             
             epoch_loss += loss.item()
 
-            # Implement Gradient Accumulation
+            # To Do: Implement Gradient Accumulation
             if not val:
                 loss.backward()
                 self.optimizer.step()
@@ -740,9 +747,6 @@ class Sampler:
 
         t=self.timesteps
 
-        if not hasattr(self.degradation.blur, 'gaussian_kernels'):
-            self.degradation.blur.get_kernels()
-
         # Sample x_T either every time new or once and keep it fixed 
         if generate:
             if self.x_T is None:
@@ -772,14 +776,12 @@ class Sampler:
                     # Reconstruction with encoded latent from x0 ground truth
                     xtm1 = self.degradation.degrade(x0, t_tensor-1) 
                     pred = model(xt, t_tensor, xtm1)
-                
-                xt = xt + model.vae_noise
+
+                xt = xt + model.vae_noise # VAE Noise injection
 
             else:
-                
                 if self.add_noise:
                     xt = xt + torch.randn_like(xt, device=self.device) * self.noise_scale     
-
                 pred = model(xt, t_tensor)
 
             # BANSAL ALGORITHM 2
@@ -800,10 +802,6 @@ class Sampler:
                 xtm1_hat = xt + pred # According to Risannen, the model predicts the residual
                 xt = xtm1_hat
                 samples.append(xt)
-
-                # if x0 is not None:
-                #     x0_hat = self.degradation.degrade(xt, t_tensor-1)
-                #     samples.append(x0_hat)
 
 
             # OURS with residual prediction
