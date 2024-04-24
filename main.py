@@ -332,7 +332,7 @@ if __name__ == "__main__":
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
 
     # Noise Injection Parameters
-    parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
+    parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.99, help='Trade-off parameter for normality of VAE noise injections')
     parser.add_argument('--vae_downsample', type=float, default=1, help='To which degree to downsample and repeat the VAE noise injections')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
@@ -346,7 +346,7 @@ if __name__ == "__main__":
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
     parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
-    parser.add_argument('--cluster', action='store_false', help='Whether to run script locally')
+    parser.add_argument('--cluster', action='store_true', help='Whether to run script locally')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
 
     parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
