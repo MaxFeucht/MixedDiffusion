@@ -12,15 +12,15 @@ import os
 import dct_blur as torch_dct
 import numpy as np
 
-from scripts.vae_unet_full import VAEEncoderStandAlone as VAEEncoder
+#from scripts.vae_unet_full import VAEEncoderStandAlone as VAEEncoder
 
 import warnings
 
 ### Forward Process ###
 
 class Scheduler:
-    def __init__(self):
-        pass
+    def __init__(self, **kwargs):
+        self.device = kwargs['device']
 
     def linear(self, timesteps):  # Problematic when using < 20 timesteps, as betas are then surpassing 1.0
         """
@@ -69,7 +69,7 @@ class Scheduler:
             raise ValueError('Invalid schedule type')
 
     
-    def get_blur_schedule(self, timesteps, std, type = 'constant'):
+    def get_bansal_blur_schedule(self, timesteps, std, type = 'constant'):
         
         # 0.01 * t + 0.35 CIFAR-10
         
@@ -86,6 +86,16 @@ class Scheduler:
         
         if type == 'cifar':
             return torch.arange(timesteps, dtype=torch.float32)/100 + 0.35
+    
+    def get_dct_sigmas(self, timesteps, dataset):
+
+        dct_sigma_min = 0.5 if dataset == 'mnist' else 0.5 # Only CIFAR-10 is tested for now as alternative
+        dct_sigma_max = 20.0 if dataset == 'mnist' else 24.0
+        dct_sigmas = torch.exp(torch.linspace(np.log(dct_sigma_min),
+                                             np.log(dct_sigma_max), timesteps, device=self.device))
+        return dct_sigmas
+
+
        
         
         
@@ -102,29 +112,29 @@ class Degradation:
         
         assert dataset in ['mnist', 'cifar10', 'celeba', 'lsun_churches'],f"Invalid dataset, choose from ['mnist', 'cifar10', 'celeba', 'lsun_churches']"
         
-        # Default settings
+        # Denoising
+        self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
+
+        # Blurring
         blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
                         'kernel_size': 11 if dataset == 'mnist' else 11, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
                         'kernel_std': 7 if dataset == 'mnist' else 7, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
                         'timesteps': timesteps, 
                         'blur_routine': 'cifar' if dataset == 'cifar10' else 'constant' if dataset == 'mnist' else 'exponential',
                         'mode': 'circular' if dataset == 'mnist' else 'reflect',
+                        'dataset': dataset,
+                        'image_size': 28 if dataset == 'mnist' else 32, # 32 if dataset == 'cifar10' else 64,
                         'device': self.device} # if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
             
         self.blur = Blurring(**blur_kwargs)
-        self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
-
-        dct_sigma_min = 0.5 if dataset == 'mnist' else 0.5 # Only CIFAR-10 is tested for now as alternative
-        dct_sigma_max = 20.0 if dataset == 'mnist' else 24.0
-        image_size = 28 if dataset == 'mnist' else 32
-        self.dct_sigmas = torch.exp(torch.linspace(np.log(dct_sigma_min),
-                                             np.log(dct_sigma_max), timesteps, device=self.device))
         
-        # Add zero sigma for the first timestep
-        #self.dct_sigmas = torch.tensor([0] + list(self.dct_sigmas))
-
-        self.dct_blur = DCTBlur(self.dct_sigmas, image_size, self.device)
-
+        # Bansal Blurring
+        self.blur.get_kernels() # Initialize kernels for Bansal Blurring
+        self.blur.gaussian_kernels.to(self.device)  # Move kernels to GPU
+        
+        # DCT Blurring
+        self.dct_blur = self.blur.get_dct_blur() # Initialize DCT Blurring
+    
 
     def noising(self, x_0, t, noise = None):
         """
@@ -154,16 +164,10 @@ class Degradation:
         :return torch.Tensor: The degraded image at time t
         """
 
-        if not hasattr(self.blur, 'gaussian_kernels'):
-            self.blur.get_kernels()
-        
-        assert self.blur.gaussian_kernels is not None, 'Gaussian Kernels not initialized'
-
         # Freeze kernels
         for kernel in self.blur.gaussian_kernels:
             kernel.requires_grad = False
 
-        self.blur.gaussian_kernels.to(self.device)  # Move kernels to GPU
         x = x_0
         
         # Keep gradients for the original image for backpropagation
@@ -201,10 +205,6 @@ class Degradation:
 
 
     def dct_blurring(self, x_0, t):
-
-        if not hasattr(self, 'dct_blur'):
-            self.dct_blur = DCTBlur(self.dct_sigmas, x_0.shape[-1], self.device)
-
         xt = self.dct_blur(x_0, t).float()
         return xt
         
@@ -264,7 +264,7 @@ class Degradation:
 
 class Blurring:
     
-    def __init__(self, timesteps, channels, kernel_size, kernel_std, blur_routine, mode, device):
+    def __init__(self, timesteps, channels, image_size, kernel_size, kernel_std, blur_routine, mode, dataset, device):
             """
             Initializes the Blurring class.
 
@@ -275,11 +275,13 @@ class Blurring:
                 num_timesteps (int): Number of diffusion timesteps. Default is 40.
                 blur_routine (str): Routine used for blurring. Default is 'Constant'.
             """
-            scheduler = Scheduler()
+            self.scheduler = Scheduler(device=device)
 
             self.channels = channels
+            self.image_size = image_size
             self.kernel_size = kernel_size
-            self.kernel_stds = scheduler.get_blur_schedule(timesteps = timesteps, std = kernel_std, type = blur_routine) 
+            self.kernel_stds = self.scheduler.get_bansal_blur_schedule(timesteps = timesteps, std = kernel_std, type = blur_routine) 
+            self.dct_sigmas = self.scheduler.get_dct_sigmas(timesteps, dataset = dataset)
             self.num_timesteps = timesteps
             self.blur_routine = blur_routine
             self.mode = mode
@@ -321,15 +323,14 @@ class Blurring:
         
         self.gaussian_kernels = nn.ModuleList(kernels).to(self.device)
     
-    def get_dct_sigmas(self, image_size):
 
-        # Check how Risannen does it, and experiment with Simon's script
+    def get_dct_blur(self):
+        """
+        Function to obtain and initialize the DCT Blur class.
+        """
 
-        sigmas = []
-        for i in range(self.num_timesteps):
-            #sigma = 0.1 * (image_size / 64) * (i + 1)
-            sigmas.append(sigma)
-        return sigmas
+        dct_blur = DCTBlur(self.dct_sigmas, self.image_size, self.device)
+        return dct_blur
     
 
 
@@ -338,7 +339,7 @@ class DenoisingCoefs:
     
     def __init__(self, timesteps, noise_schedule, device, **kwargs):
         self.timesteps = timesteps
-        self.scheduler = Scheduler()
+        self.scheduler = Scheduler(device=device)
         
         self.betas = self.scheduler.get_noise_schedule(self.timesteps, noise_schedule=noise_schedule).to(device)
         self.alphas = 1. - self.betas
@@ -468,8 +469,8 @@ class Trainer:
         self.vae = vae
         self.vae_alpha = vae_alpha
         self.noise_scale = kwargs['noise_scale']
-        self.vae_xt = kwargs['vae_full']
         self.vae_downsample = kwargs['vae_downsample']
+        self.add_noise = kwargs['add_noise']
 
         general_kwargs = {'timesteps': timesteps, 
                           'prediction': prediction,
@@ -478,7 +479,7 @@ class Trainer:
                           'device': self.device,
                           'dataset': kwargs['dataset']}
         
-        self.schedule = Scheduler()
+        self.schedule = Scheduler(device=self.device)
         self.degrader = Degradation(**general_kwargs)
         self.reconstruction = Reconstruction(**general_kwargs)
         self.loss = Loss(**general_kwargs)
@@ -497,20 +498,6 @@ class Trainer:
             self.model_ema = model
             warnings.warn('No EMA applied')
 
-        if self.vae_xt:
-
-            latent_dim = model.channels * model.image_size * model.image_size
-            latent_dim = int(latent_dim // kwargs['vae_downsample'])
-
-            self.vae_model = VAEEncoder(dim=model.ch, 
-                            dim_mult=model.ch_mult, 
-                            latent_dim=latent_dim, # Returns flattened image latents
-                            image_size=model.image_size, 
-                            channels=model.channels, 
-                            temb_channels=model.temb_ch,
-                            dropout=0)
-            self.vae_model = self.vae_model.to(self.device)
-
 
     def train_iter(self, x_0, t):
 
@@ -519,7 +506,7 @@ class Trainer:
             x_t = self.degrader.degrade(x_0, t) 
             
             # Add noise to degrade with - Noise injection a la Risannen
-            if not self.vae_xt:
+            if self.add_noise:
                 x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
 
             x_tm1 = self.degrader.degrade(x_0, t-1)
@@ -559,21 +546,6 @@ class Trainer:
         
         else:
 
-            # # Full scale external VAE injection
-            # if self.vae_xt:
-            #     vae_mu, vae_logvar = self.vae_model(x_t, x_tm1, t)
-            #     z_sample = torch.randn_like(vae_mu) * torch.exp(0.5*vae_logvar) + vae_mu
-
-            #     # Repeat z_sample to match image dimensions
-            #     if self.vae_downsample > 1:
-            #         z_sample = z_sample.repeat(1, self.vae_downsample) # Flattened image latents, repeated on non-batch dimensions
-
-            #     # KL Divergence for VAE Encoder
-            #     kl_div = 0.5 * (vae_mu.pow(2) + vae_logvar.exp() - 1 - vae_logvar).sum(1).mean()
-
-            #     bs, ch, res = x_t.shape[0], x_t.shape[1], x_t.shape[2]
-            #     x_t = x_t + z_sample.reshape(bs, ch, res, res) * self.noise_scale
-
             model_pred = self.model(x_t, t)
 
             # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
@@ -582,9 +554,6 @@ class Trainer:
             if not self.deterministic:
                 pred = self.reconstruction.reform_pred(pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
             loss = self.loss.mse_loss(target, pred)
-
-            if self.vae_xt:
-                loss = self.vae_alpha * loss + (1-self.vae_alpha) * kl_div
 
             return loss
     
@@ -648,9 +617,8 @@ class Sampler:
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
         self.black = True if degradation in ['fadeblack', 'fadeblack_blur'] else False
         self.gmm = None
-        self.break_symmetry = kwargs['add_noise']
+        self.add_noise = kwargs['add_noise']
         self.vae = kwargs['vae']
-        self.vae_xt = kwargs['vae_full']
         self.noise_scale = kwargs['noise_scale']
         self.vae_downsample = kwargs['vae_downsample']
         
@@ -707,18 +675,12 @@ class Sampler:
                     
             # Noise injection for breaking symmetry
             # Original code: noise_levels = [0.001, 0.002, 0.003, 0.004] # THIS GIVES US A HINT THAT THE NOISE LEVELS HAVE TO BE FINELY TUNED
-            noise_level = 0.001
-            if self.break_symmetry:
-                x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
+            if self.add_noise:
+                x_t = x_t + torch.randn_like(x_t, device=self.device) * self.noise_scale
         
         elif self.black:
             # Sample x_T from R0
             x_t = torch.zeros((batch_size, channels, image_size, image_size), device=self.device) 
-            
-            # # Noise injection for breaking symmetry
-            # noise_level = 0.001
-            # if self.break_symmetry:
-            #     x_t = x_t + torch.randn_like(x_t, device=self.device) * noise_level
         
         elif not self.deterministic:
             # Sample x_T from random normal distribution
@@ -799,21 +761,6 @@ class Sampler:
 
         for t in tqdm(reversed(range(self.timesteps)), desc=f"Cold Sampling"):
             t_tensor = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
-            
-            # External VAE Injection - THIS IS SAMPLING NOISE
-            # if self.vae_xt:
-                    
-            #         # Sample from VAE prior (and repeat to match image dimensions in necessary)
-            #         latent_dim = (model.channels * model.image_size * model.image_size) // self.vae_downsample
-            #         noise = torch.randn((batch_size, latent_dim), device=self.device) * self.noise_scale
-
-            #         bs, ch, res = xt.shape[0], xt.shape[1], xt.shape[2]
-            #         noise = noise.reshape(bs, ch, res, res) * self.noise_scale
-                    
-            #         if self.vae_downsample > 1:
-            #             noise = noise.repeat(1, self.vae_downsample) # Flattened image latents, repeated on non-batch dimensions
-
-            #         xt = xt + noise
 
             if self.vae:
                 if generate:
@@ -823,14 +770,15 @@ class Sampler:
                         pred = model(xt, t_tensor, xtm1=None, prior=prior)
                 else:
                     # Reconstruction with encoded latent from x0 ground truth
-                    xtm1 = self.degradation.degrade(x0, t_tensor-1) # Adaption due to explanation below (0 indexing) 
+                    xtm1 = self.degradation.degrade(x0, t_tensor-1) 
                     pred = model(xt, t_tensor, xtm1)
                 
-                #xt = xt + model.vae_noise
+                xt = xt + model.vae_noise
 
             else:
-
-                xt = xt + torch.randn_like(xt, device=self.device) * self.noise_scale     
+                
+                if self.add_noise:
+                    xt = xt + torch.randn_like(xt, device=self.device) * self.noise_scale     
 
                 pred = model(xt, t_tensor)
 

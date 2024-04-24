@@ -113,10 +113,10 @@ def load_data(batch_size = 32, dataset = 'mnist'):
 
 def plot_degradation(timesteps, train_loader, **kwargs):
 
-    noise = Degradation(timesteps = timesteps, degradation = 'noise', noise_schedule='cosine', dataset=kwargs['dataset'])
-    blur = Degradation(timesteps = timesteps, degradation = 'blur', noise_schedule='cosine', dataset=kwargs['dataset'])
-    black = Degradation(timesteps = timesteps, degradation = 'fadeblack', noise_schedule='cosine', dataset=kwargs['dataset'])
-    black_blur = Degradation(timesteps = timesteps, degradation = 'fadeblack_blur', noise_schedule='cosine', dataset=kwargs['dataset'])
+    noise = Degradation(timesteps = timesteps, degradation = 'noise', noise_schedule='cosine', dataset=kwargs['dataset'], device=kwargs['device'])
+    blur = Degradation(timesteps = timesteps, degradation = 'blur', noise_schedule='cosine', dataset=kwargs['dataset'], device=kwargs['device'])
+    black = Degradation(timesteps = timesteps, degradation = 'fadeblack', noise_schedule='cosine', dataset=kwargs['dataset'], device=kwargs['device'])
+    black_blur = Degradation(timesteps = timesteps, degradation = 'fadeblack_blur', noise_schedule='cosine', dataset=kwargs['dataset'], device=kwargs['device'])
 
     timesteps = min(50, timesteps)
 
@@ -150,9 +150,13 @@ def plot_degradation(timesteps, train_loader, **kwargs):
         x_black = x_black[0].unsqueeze(0) if len(x_black[0].shape) == 2 else x_black[0]
         plt.imshow(x_black.permute(1, 2, 0), vmin=0, vmax=1)   
         plt.axis('off')
-        
+    
         plt.subplot(5, timesteps, 4*timesteps+ind+1)
+        x_blackblur = black_blur.degrade(x, t).cpu()
+        x_blackblur = x_blackblur[0].unsqueeze(0) if len(x_blackblur[0].shape) == 2 else x_blackblur[0]
+        plt.imshow(x_blackblur.permute(1, 2, 0), vmin=0, vmax=1)   
         plt.axis('off')
+        
 
     # axis off
     plt.suptitle('Image degradation', size = 18)
@@ -165,47 +169,11 @@ def main(**kwargs):
     
     if kwargs['verbose']:
         plot_degradation(train_loader=trainloader, **kwargs)
-        raise ValueError("Plotted degradation, exiting")
     
     x, _ = next(iter(trainloader))   
     channels, imsize = x[0].shape[0], x[0].shape[-1]
     
-    # # Define Model
-    # unet = UNet(image_size=imsize, 
-    #             channels=channels, 
-    #             num_downsamples=kwargs['num_downsamples'], 
-    #             dim = kwargs['dim'], 
-    #             dim_max =  kwargs['dim']*2**kwargs['num_downsamples'],
-    #             dropout = 0.1)
-    
-    # if kwargs['dataset'] == 'mnist':
-    #     unet = MNISTUnet(timesteps=kwargs['timesteps'],
-    #                     in_channels=channels,
-    #                     out_channels=channels,
-    #                     time_embedding_dim=64,
-    #                     dim_mults=[2,4],
-    #                     base_dim=kwargs['dim'])
-
-    # unet = KarrasUnet(image_size=imsize, 
-    #                 channels=channels, 
-    #                 num_downsamples=kwargs['num_downsamples'], 
-    #                 dim = kwargs['dim'], 
-    #                 dim_max = kwargs['dim']*2**kwargs['num_downsamples'],
-    #                 num_blocks_per_stage=2,
-    #                 fourier_dim=16,
-    #                 dropout = 0.1)
-    
-    # else:
-        # unet = BansalUnet(image_size=imsize,
-        #                 channels=channels,
-        #                 out_ch=channels,
-        #                 ch=kwargs['dim'],
-        #                 ch_mult= (1,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
-        #                 num_res_blocks=2,
-        #                 attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
-        #                 dropout=0.1)
-
-
+    # Define Model
     if kwargs['vae']:
         unet = VAEUNet(image_size=imsize,
                         channels=channels,
@@ -353,31 +321,36 @@ def main(**kwargs):
 if __name__ == "__main__":
     
     parser = argparse.ArgumentParser(description='Diffusion Models')
-    parser.add_argument('--timesteps', '--t', type=int, default=100, help='Degradation timesteps')
-    parser.add_argument('--lr', type=float, default=5e-5, help='Learning rate')
-    parser.add_argument('--epochs', '--e', type=int, default=300, help='Number of Training Epochs')
+
+    # General Diffusion Parameters
+    parser.add_argument('--timesteps', '--t', type=int, default=20, help='Degradation timesteps')
+    parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
+    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
-    parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
-    parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
+    parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
+    parser.add_argument('--epochs', '--e', type=int, default=20, help='Number of Training Epochs')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
-    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
-    parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
-    parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
-    parser.add_argument('--cluster', action='store_false', help='Whether to run script locally')
-    parser.add_argument('--n_samples', type=int, default=60, help='Number of samples to generate')
+
+    # Noise Injection Parameters
+    parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
+    parser.add_argument('--vae_alpha', type=float, default = 0.99, help='Trade-off parameter for normality of VAE noise injections')
+    parser.add_argument('--vae_downsample', type=float, default=1, help='To which degree to downsample and repeat the VAE noise injections')
+    parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
+    parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
+
+    # Housekeeping Paraneters
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
+    parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
+    parser.add_argument('--n_samples', type=int, default=60, help='Number of samples to generate')
     parser.add_argument('--fix_sample', action='store_false', help='Whether to fix x_T for sampling, to see sample progression')
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
     parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
-    parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
-    parser.add_argument('--vae_alpha', type=float, default = 0.9, help='Trade-off parameter for normality of VAE noise injections')
-    parser.add_argument('--vae_full', action='store_true', help='Whether to use full resolution VAE injections')
-    parser.add_argument('--vae_downsample', type=float, default=1, help='To which degree to downsample and repeat the VAE noise injections')
+    parser.add_argument('--cluster', action='store_false', help='Whether to run script locally')
+    parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
 
-    parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
-    parser.add_argument('--add_noise', action='store_true', help='Whether to add noise to the input')
     parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
 
     args = parser.parse_args()
@@ -386,13 +359,11 @@ if __name__ == "__main__":
     args.device = 'cuda' if torch.cuda.is_available() else 'mps'
 
     if args.vae:
-        print("Using VAE Noise Injections" if not args.vae_full else "Using Full Resolution VAE Noise Injections")
+        print("Using VAE Noise Injections")
         assert not args.add_noise, "Cannot use VAE and add noise at the same time"
-        #if args.vae_full:
-            #assert args.noise_scale == 0.0, "Noise scale must be 0 for full resolution VAE"
     else:
-        if args.vae_full:
-            print("Using External Full Resolution VAE")
+        if args.add_noise:
+            print("Using Risannen Noise Injections")
         else:
             print("Using Normal U-Net")
 
