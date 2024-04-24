@@ -240,6 +240,7 @@ class Degradation:
         """
 
         multiplier = self.blacking_coefs[t]
+        multiplier[t == -1] = 1.0
         x_t = multiplier * x_0 
         return x_t
     
@@ -338,6 +339,7 @@ class Blurring:
         """
 
         dct_blur = DCTBlur(self.dct_sigmas, self.image_size, self.device)
+
         return dct_blur
     
 
@@ -401,8 +403,6 @@ class DenoisingCoefs:
         residual_coef = torch.sqrt(1. / self.alphas_cumprod.gather(-1, t) - 1).reshape(-1, 1, 1, 1)
 
         return xt_coef, residual_coef
-    
-    
 
 class Reconstruction:
     
