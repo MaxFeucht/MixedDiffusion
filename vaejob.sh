@@ -1,6 +1,6 @@
 #!/bin/bash
-#SBATCH --job-name=int_1
-#SBATCH --time=1:00:00
+#SBATCH --job-name=vae_50
+#SBATCH --time=8:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
@@ -43,9 +43,9 @@ cd /var/scratch/mft520/experiments
 
 ## Set Vars
 
-lr=5e-5
+lr=2e-4
 batch_size=128
-timesteps=50
+timesteps=10
 dim=128
 epochs=1000
 prediction="xtm1"
@@ -59,7 +59,7 @@ model_ema_decay=0.995
 num_train_steps=700000
 vae_alpha=0.9
 noise_scale=0.01
-vae_downsample=1
+vae_downsample=196
 
 
 
@@ -69,5 +69,5 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --num_train_steps $num_train_steps \
                                                 --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay --noise_scale $noise_scale \
-                                                --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster --vae #--load_checkpoint
+                                                --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster --vae #--add_noise #--load_checkpoint
 echo "Script finished"
