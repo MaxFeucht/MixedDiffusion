@@ -332,7 +332,7 @@ if __name__ == "__main__":
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
 
     # Noise Injection Parameters
-    parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
+    parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.99, help='Trade-off parameter for weight of Reconstruction and KL Div')
     parser.add_argument('--vae_downsample', type=float, default=32, help='To which degree to downsample and repeat the VAE noise injections')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
