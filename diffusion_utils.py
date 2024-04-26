@@ -479,6 +479,7 @@ class Trainer:
         self.noise_scale = kwargs['noise_scale']
         self.vae_downsample = kwargs['vae_downsample']
         self.add_noise = kwargs['add_noise']
+        self.xt_weighting = kwargs['xt_weighting']
 
         general_kwargs = {'timesteps': timesteps, 
                           'prediction': prediction,
@@ -534,6 +535,9 @@ class Trainer:
         elif self.prediction == 'xtm1':
             assert self.deterministic, 'xtm1 prediction not compatible with denoising diffusion'
             target = x_tm1
+            if self.xt_weighting:
+                weight = (1 - (t / self.timesteps)).reshape(-1, 1, 1, 1)
+                target = target / weight # Weighting of the target image according to the time step - the higher the time step, the more the target image is upweighted
         else:
             raise ValueError('Invalid prediction type')
         
@@ -628,6 +632,7 @@ class Sampler:
         self.vae = kwargs['vae']
         self.noise_scale = kwargs['noise_scale']
         self.vae_downsample = kwargs['vae_downsample']
+        self.xt_weighting = kwargs['xt_weighting']
         
 
     def fit_gmm(self, dataloader, clusters = 1, sample = False):
@@ -800,6 +805,12 @@ class Sampler:
             # OURS with xt prediction
             elif self.prediction == 'xtm1':
                 xtm1_hat = xt + pred # According to Risannen, the model predicts the residual
+
+                # To cancel out the effect of target weighting from training
+                if self.xt_weighting:
+                    weight = (1 - (t_tensor / self.timesteps)).reshape(-1, 1, 1, 1)
+                    xtm1_hat = xtm1_hat * weight
+
                 xt = xtm1_hat
                 samples.append(xt)
 
