@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=noise_10
+#SBATCH --job-name=nonoise_1
 #SBATCH --time=8:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
@@ -45,7 +45,7 @@ cd /var/scratch/mft520/experiments
 
 lr=2e-4
 batch_size=128
-timesteps=10
+timesteps=1
 dim=128
 epochs=1000
 prediction="xtm1"
@@ -56,8 +56,7 @@ sample_interval=1
 n_samples=72
 model_ema_steps=10
 model_ema_decay=0.995
-num_train_steps=700000
-vae_alpha=0.9
+vae_alpha=0.999
 noise_scale=0.01
 vae_downsample=1
 
@@ -67,7 +66,6 @@ vae_downsample=1
 python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size $batch_size --timesteps $timesteps --dim $dim \
                                                 --lr $lr --prediction $prediction --degradation $degradation \
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
-                                                --n_samples $n_samples --num_train_steps $num_train_steps \
-                                                --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay --noise_scale $noise_scale \
-                                                --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster #--add_noise #--load_checkpoint
+                                                --n_samples $n_samples --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
+                                                --noise_scale $noise_scale --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster --test_run #--add_noise #--load_checkpoint
 echo "Script finished"

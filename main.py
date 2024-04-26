@@ -249,12 +249,14 @@ def main(**kwargs):
         trainer.model.train()
         if kwargs['vae']:
             trainloss, reconstruction, kl_div = trainer.train_epoch(trainloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
-            wandb.log({"train loss": trainloss,
-                       "reconstruction loss": reconstruction,
-                        "kl divergence": kl_div}, step = e)
+            if not kwargs['test_run']:
+                wandb.log({"train loss": trainloss,
+                        "reconstruction loss": reconstruction,
+                            "kl divergence": kl_div}, step = e)
         else:
             trainloss = trainer.train_epoch(trainloader, val=False)
-            wandb.log({"train loss": trainloss}, step=e)
+            if not kwargs['test_run']:
+                wandb.log({"train loss": trainloss}, step=e)
 
         print(f"Epoch {e} Train Loss: {trainloss}")
 
@@ -323,7 +325,7 @@ if __name__ == "__main__":
     # General Diffusion Parameters
     parser.add_argument('--timesteps', '--t', type=int, default=5, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method, choose one of [x0, xtm1, residual]')
-    parser.add_argument('--dataset', type=str, default='cifar10', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=128, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
@@ -333,7 +335,7 @@ if __name__ == "__main__":
 
     # Noise Injection Parameters
     parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
-    parser.add_argument('--vae_alpha', type=float, default = 0.99, help='Trade-off parameter for weight of Reconstruction and KL Div')
+    parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
     parser.add_argument('--vae_downsample', type=float, default=32, help='To which degree to downsample and repeat the VAE noise injections')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
@@ -349,7 +351,7 @@ if __name__ == "__main__":
     parser.add_argument('--cluster', action='store_true', help='Whether to run script locally')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
 
-    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
 
     args = parser.parse_args()
 
@@ -373,13 +375,14 @@ if __name__ == "__main__":
     
     if args.test_run:
         print("Running Test Run with only one iter per epoch")
+    else:
+        # Initialize wandb
+        wandb.init(
+        project="Diffusion Thesis",
+        config=vars(args))
     
     print("Device: ", args.device)
 
-    # Initialize wandb
-    wandb.init(
-    project="Diffusion Thesis",
-    config=vars(args))
 
     # Run main function
     main(**vars(args))

@@ -8,15 +8,18 @@ from torchvision.datasets import CelebA
 
 def create_dirs(**kwargs):
 
-    vae_flag = "vae" if kwargs["vae"] else ""
+    vae_flag = "_vae" if kwargs["vae"] else ""
     # Check if directory for imgs exists
-    for i in range(10000):
-        imgpath = f'./imgs/{kwargs["dataset"]}_{kwargs["degradation"]}_{vae_flag}/run_{i}'
-        if not os.path.exists(imgpath):
-            os.makedirs(imgpath)
-            break
-    
-    modelpath = f'./models/{kwargs["dataset"]}_{kwargs["degradation"]}_{vae_flag}'
+    imgpath = f'./imgs/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}'
+    dirs = os.listdir(imgpath)
+    run_counts = [int(d.split("_")[1]) for d in dirs if d.startswith('run')]
+    run_counts.sort()
+    run_count = run_counts[-1] if run_counts else 0
+
+    imgpath += f'/run_{run_count+1}_{kwargs['prediction']}_{kwargs['timesteps']}'
+    os.makedirs(imgpath)
+        
+    modelpath = f'./models/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}'
     if not os.path.exists(modelpath):
         os.makedirs(modelpath)
 
