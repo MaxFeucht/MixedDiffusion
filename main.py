@@ -249,14 +249,14 @@ def main(**kwargs):
         trainer.model.train()
         if kwargs['vae']:
             trainloss, reconstruction, kl_div = trainer.train_epoch(trainloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
-            if not kwargs['test_run']:
-                wandb.log({"train loss": trainloss,
-                        "reconstruction loss": reconstruction,
-                            "kl divergence": kl_div}, step = e)
+            #if not kwargs['test_run']:
+            wandb.log({"train loss": trainloss,
+                    "reconstruction loss": reconstruction,
+                        "kl divergence": kl_div}, step = e)
         else:
             trainloss = trainer.train_epoch(trainloader, val=False)
-            if not kwargs['test_run']:
-                wandb.log({"train loss": trainloss}, step=e)
+            #if not kwargs['test_run']:
+            wandb.log({"train loss": trainloss}, step=e)
 
         print(f"Epoch {e} Train Loss: {trainloss}")
 
@@ -376,11 +376,11 @@ if __name__ == "__main__":
     
     if args.test_run:
         print("Running Test Run with only one iter per epoch")
-    else:
-        # Initialize wandb
-        wandb.init(
-        project="Diffusion Thesis",
-        config=vars(args))
+
+    # Initialize wandb
+    wandb.init(
+    project="Diffusion Thesis",
+    config=vars(args))
     
     print("Device: ", args.device)
 
@@ -389,7 +389,7 @@ if __name__ == "__main__":
     main(**vars(args))
 
     # Finish wandb run
-    if not args.test_run:
-        wandb.finish()
+    #if not args.test_run:
+    wandb.finish()
 
     print("Finished Training")
