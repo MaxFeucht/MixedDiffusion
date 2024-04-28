@@ -352,7 +352,7 @@ if __name__ == "__main__":
     parser.add_argument('--cluster', action='store_true', help='Whether to run script locally')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
 
-    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
 
     args = parser.parse_args()
 
