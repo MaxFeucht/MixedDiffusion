@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=vae_50
-#SBATCH --time=8:00:00
+#SBATCH --job-name=vwc_200
+#SBATCH --time=12:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
 #SBATCH -C A4000
 #SBATCH --gres=gpu:1
-#SBATCH -o no_output.out
+#SBATCH -o vae_output.out
 
 ## in the list above, the partition name depends on where you are running your job. 
 ## On DAS5 the default would be `defq` on Lisa the default would be `gpu` or `gpu_shared`
@@ -45,21 +45,20 @@ cd /var/scratch/mft520/experiments
 
 lr=2e-4
 batch_size=128
-timesteps=10
+timesteps=200
 dim=128
 epochs=1000
 prediction="xtm1"
 degradation="fadeblack_blur"
 noise_schedule="cosine"
-dataset="mnist"
+dataset="cifar10"
 sample_interval=1
 n_samples=72
 model_ema_steps=10
 model_ema_decay=0.995
-num_train_steps=700000
-vae_alpha=0.9
+vae_alpha=0.999
 noise_scale=0.01
-vae_downsample=196
+vae_downsample=128
 
 
 
@@ -67,7 +66,7 @@ vae_downsample=196
 python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size $batch_size --timesteps $timesteps --dim $dim \
                                                 --lr $lr --prediction $prediction --degradation $degradation \
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
-                                                --n_samples $n_samples --num_train_steps $num_train_steps \
+                                                --n_samples $n_samples \
                                                 --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay --noise_scale $noise_scale \
-                                                --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster --vae #--add_noise #--load_checkpoint
+                                                --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster --vae --xt_weighting #--add_noise #--load_checkpoint
 echo "Script finished"

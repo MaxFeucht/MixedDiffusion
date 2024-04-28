@@ -12,11 +12,11 @@ def create_dirs(**kwargs):
     # Check if directory for imgs exists
     imgpath = f'./imgs/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}'
     dirs = os.listdir(imgpath)
-    run_counts = [int(d.split("_")[1]) for d in dirs if d.startswith('run')]
+    run_counts = [int(d.split("_")[1]) for d in dirs if d.startswith("run")]
     run_counts.sort()
     run_count = run_counts[-1] if run_counts else 0
 
-    imgpath += f'/run_{run_count+1}_{kwargs['prediction']}_{kwargs['timesteps']}'
+    imgpath += f'/run_{run_count+1}_{kwargs["prediction"]}_{kwargs["timesteps"]}'
     os.makedirs(imgpath)
         
     modelpath = f'./models/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}'
