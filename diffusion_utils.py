@@ -549,8 +549,14 @@ class Trainer:
             # We do this by adding the noise to x_t and let the model optimize for the difference between the perturbed x_t and xtm1.
             x_t = x_t + self.model.vae_noise 
 
-            pred = (x_t + model_pred) if self.prediction == 'xtm1' else model_pred # According to Risannen, the model predicts the residual
+            # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
+            if self.prediction == 'xtm1' and (self.add_noise or self.vae):
+                pred = (x_t + model_pred)
+            else:
+                pred = model_pred
             
+            pred = model_pred
+
             reconstruction = self.loss.mse_loss(target, pred)
             kl_div = self.model.kl_div
             loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div) #* self.noise_scale)
@@ -561,7 +567,10 @@ class Trainer:
             model_pred = self.model(x_t, t)
 
             # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
-            pred = (x_t + model_pred) if self.prediction == 'xtm1' else model_pred
+            if self.prediction == 'xtm1' and (self.add_noise or self.vae):
+                pred = (x_t + model_pred)
+            else:
+                pred = model_pred
 
             if not self.deterministic:
                 pred = self.reconstruction.reform_pred(pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
@@ -804,7 +813,10 @@ class Sampler:
 
             # OURS with xt prediction
             elif self.prediction == 'xtm1':
-                xtm1_hat = xt + pred # According to Risannen, the model predicts the residual
+                if self.add_noise or self.vae: # According to Risannen, the model predicts the residual
+                    xtm1_hat = xt + pred
+                else:
+                    xtm1_hat = pred
 
                 # To cancel out the effect of target weighting from training
                 if self.xt_weighting:

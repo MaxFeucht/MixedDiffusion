@@ -205,14 +205,6 @@ class VAEEncoder(nn.Module):
                                        stride=1,
                                        padding=1)
         
-        # # Provisoric timestep embedding
-        # self.temb = nn.Module()
-        # self.temb.dense = nn.ModuleList([
-        #     torch.nn.Linear(self.dim,
-        #                     self.dim*4),
-        #     torch.nn.Linear(self.dim*4,
-        #                     self.dim*4),
-        # ])
 
         curr_res = image_size
         in_dim_mult = (1,)+dim_mult
@@ -274,7 +266,7 @@ class VAEEncoder(nn.Module):
 
 
 
-class VAEUNet(nn.Module):
+class VAEUnet(nn.Module):
     def __init__(self, *, ch, out_ch, ch_mult=(1,2,2,2), num_res_blocks,
                  attn_resolutions, dropout=0.0, resamp_with_conv=True, channels,
                  image_size, noise_scale, latent_dim=None):

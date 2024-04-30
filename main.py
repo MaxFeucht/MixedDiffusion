@@ -20,7 +20,9 @@ from torchvision.utils import save_image
 from unet import UNet
 from mnist_unet import MNISTUnet
 from scripts.bansal_unet import BansalUnet
-from scripts.vae_unet_full import VAEUNet
+from scripts.risannen_unet import RisannenUnet
+from scripts.risannen_unet_vae import VAEUnet
+#from scripts.vae_unet_full import VAEUnet
 
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
 from utils import create_dirs, save_video, save_gif, MyCelebA
@@ -29,6 +31,7 @@ from utils import create_dirs, save_video, save_gif, MyCelebA
 import sys
 if 'ipykernel' in sys.modules:
     sys.argv = ['']
+
 
 def load_data(batch_size = 32, dataset = 'mnist'):
     
@@ -173,25 +176,48 @@ def main(**kwargs):
     
     # Define Model
     if kwargs['vae']:
-        unet = VAEUNet(image_size=imsize,
-                        channels=channels,
-                        out_ch=channels,
-                        ch=kwargs['dim'],
-                        ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
+
+        # Bansal Version
+        # unet = VAEUnet(image_size=imsize,
+        #                 channels=channels,
+        #                 out_ch=channels,
+        #                 ch=kwargs['dim'],
+        #                 ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
+        #                 num_res_blocks=2,
+        #                 attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
+        #                 latent_dim=int(channels*imsize*imsize//kwargs['vae_downsample']),
+        #                 noise_scale=kwargs['noise_scale'],
+        #                 dropout=0)
+
+
+        # Risannen Version
+        unet = VAEUnet(image_size=imsize,
+                        in_channels=channels,
+                        dim=kwargs['dim'],
                         num_res_blocks=2,
-                        attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
+                        attention_levels=(2,) if kwargs['dataset'] == 'mnist' else (2,3),
+                        dropout=0.1,
+                        ch_mult=(1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
                         latent_dim=int(channels*imsize*imsize//kwargs['vae_downsample']),
-                        noise_scale=kwargs['noise_scale'],
-                        dropout=0)
+                        noise_scale=kwargs['noise_scale'])
+
     else:
-        unet = BansalUnet(image_size=imsize,
-                channels=channels,
-                out_ch=channels,
-                ch=kwargs['dim'],
-                ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
-                num_res_blocks=2,
-                attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
-                dropout=0)
+        # unet = BansalUnet(image_size=imsize,
+        #         channels=channels,
+        #         out_ch=channels,
+        #         ch=kwargs['dim'],
+        #         ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
+        #         num_res_blocks=2,
+        #         attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
+        #         dropout=0)
+    
+        unet = RisannenUnet(image_size=imsize,
+                            in_channels=channels,
+                            dim=kwargs['dim'],
+                            num_res_blocks=2,
+                            attention_levels=(2,) if kwargs['dataset'] == 'mnist' else (2,3),
+                            dropout=0.1,
+                            ch_mult=(1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2))
 
 
     # # Enable Multi-GPU training
@@ -323,9 +349,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diffusion Models')
 
     # General Diffusion Parameters
-    parser.add_argument('--timesteps', '--t', type=int, default=5, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=3, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
-    parser.add_argument('--dataset', type=str, default='cifar10', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=128, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
@@ -333,11 +359,13 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', '--e', type=int, default=20, help='Number of Training Epochs')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--xt_weighting', action='store_true', help='Whether to use weighting for xt in loss')
+    #parser.add_argument('--recursive_x0', action='store_', help='Whether to predict x0 recursively as during sampling')
+
 
     # Noise Injection Parameters
     parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
-    parser.add_argument('--vae_downsample', type=float, default=128, help='To which degree to downsample and repeat the VAE noise injections')
+    parser.add_argument('--vae_downsample', type=float, default=1, help='To which degree to downsample and repeat the VAE noise injections')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
 
@@ -386,6 +414,7 @@ if __name__ == "__main__":
 
 
     # Run main function
+
     main(**vars(args))
 
     # Finish wandb run
