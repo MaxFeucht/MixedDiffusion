@@ -16,6 +16,7 @@ from torchvision import datasets
 from torchvision import transforms as T
 from torchvision.utils import save_image
 
+from scripts.datasets import load_data
 
 from unet import UNet
 from mnist_unet import MNISTUnet
@@ -33,13 +34,14 @@ if 'ipykernel' in sys.modules:
     sys.argv = ['']
 
 
-def load_data(batch_size = 32, dataset = 'mnist'):
+def load_dataset(batch_size = 32, dataset = 'mnist'):
     
-    assert dataset in ['mnist', 'cifar10', 'celeba', 'lsun_churches'],f"Invalid dataset, choose from ['mnist', 'cifar10', 'celeba', 'lsun_churches']"
+    assert dataset in ['mnist', 'cifar10', 'celeba', 'lsun_churches', 'afhq'],f"Invalid dataset, choose from ['mnist', 'cifar10', 'celeba', 'lsun_churches']"
 
     # Check if directory exists
     if not os.path.exists(f'./data/{dataset.split("_")[0].upper()}'):
         os.makedirs(f'./data/{dataset.split("_")[0].upper()}')
+
     
     if dataset == 'mnist':
 
@@ -104,6 +106,16 @@ def load_data(batch_size = 32, dataset = 'mnist'):
                                     classes=['church_outdoor_val'], 
                                     transform=T.Compose([T.ToTensor()]))
     
+    elif dataset == 'afhq':
+        train_loader = load_data(data_dir="data/AFHQ_64/train",
+                                batch_size=batch_size, image_size=64,
+                                random_flip=False)
+        val_loader = load_data(data_dir="data/AFHQ_64/test",
+                               batch_size=batch_size, image_size=64,
+                               random_flip=False)
+        
+        return train_loader, val_loader
+
 
     # Set up data loaders
     train_loader = torch.utils.data.DataLoader(training_data, batch_size=batch_size, shuffle=True)
@@ -166,7 +178,7 @@ def plot_degradation(timesteps, train_loader, **kwargs):
 
 def main(**kwargs):
     
-    trainloader, valloader = load_data(kwargs['batch_size'], kwargs['dataset'])
+    trainloader, valloader = load_dataset(kwargs['batch_size'], kwargs['dataset'])
     
     if kwargs['verbose']:
         plot_degradation(train_loader=trainloader, **kwargs)
@@ -349,7 +361,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diffusion Models')
 
     # General Diffusion Parameters
-    parser.add_argument('--timesteps', '--t', type=int, default=3, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=10, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
@@ -361,13 +373,12 @@ if __name__ == "__main__":
     parser.add_argument('--xt_weighting', action='store_true', help='Whether to use weighting for xt in loss')
     #parser.add_argument('--recursive_x0', action='store_', help='Whether to predict x0 recursively as during sampling')
 
-
     # Noise Injection Parameters
-    parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
+    parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
     parser.add_argument('--vae_downsample', type=float, default=1, help='To which degree to downsample and repeat the VAE noise injections')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
-    parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
+    parser.add_argument('--noise_scale', type=float, default = 0, help='How much Noise to add to the input')
 
     # Housekeeping Parameters
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')

@@ -11,6 +11,8 @@ def create_dirs(**kwargs):
     vae_flag = "_vae" if kwargs["vae"] else ""
     # Check if directory for imgs exists
     imgpath = f'./imgs/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}'
+    if not os.path.exists(imgpath):
+        os.makedirs(imgpath)
     dirs = os.listdir(imgpath)
     run_counts = [int(d.split("_")[1]) for d in dirs if d.startswith("run")]
     run_counts.sort()

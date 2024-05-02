@@ -1025,7 +1025,6 @@ class VAEUnet(nn.Module):
         xt = xt + self.vae_noise # Delete this line after testing
 
 
-
         h = xt.type(self.dtype)
         for module in self.input_blocks:
             h = module(h, emb)

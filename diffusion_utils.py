@@ -124,11 +124,9 @@ class Degradation:
         self.device = kwargs['device']
         scheduler = Scheduler(device = self.device)
         
-        assert degradation in ['noise', 'blur', 'fadeblack', 'fadeblack_blur'], 'Invalid degradation type, choose from noise, blur, fadeblack, fadeblack_blur'
+        assert degradation in ['noise', 'blur', 'fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal'], 'Invalid degradation type, choose from noise, blur, fadeblack, fadeblack_blur'
         self.degradation = degradation
-        
-        assert dataset in ['mnist', 'cifar10', 'celeba', 'lsun_churches'],f"Invalid dataset, choose from ['mnist', 'cifar10', 'celeba', 'lsun_churches']"
-        
+                
         # Denoising
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
 
@@ -222,6 +220,32 @@ class Degradation:
                 blur_t.append(x_0[step])
 
         return torch.stack(blur_t)
+
+
+    def bansal_blurring_xt(self, x_tm1, t):
+        """
+        Function to blur an image x at time t.
+        
+        :param torch.Tensor x_tm1: Degraded image at time t-1
+        :param int t: The time step
+        :return torch.Tensor x_t: The degraded image at time t
+        """
+
+        x = x_tm1
+        t_max = torch.max(t)
+
+        if t_max == -1:
+            return x_tm1
+        else:
+            if t_max == (self.timesteps-1):
+                x = torch.mean(x, [2, 3], keepdim=True)
+                x_t = x.expand(x_tm1.shape[0], x_tm1.shape[1], x_tm1.shape[2], x_tm1.shape[3])
+            else:
+                x = x.unsqueeze(0) if len(x.shape) == 2  else x
+                x_t = self.blur.gaussian_kernels[t_max](x).squeeze(0)               
+
+            return x_t
+                
 
 
     def dct_blurring(self, x_0, t):
@@ -408,7 +432,7 @@ class Reconstruction:
     
     def __init__(self, prediction, degradation, **kwargs):
         self.prediction = prediction
-        self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
+        self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal'] else False
         self.coefs = DenoisingCoefs(**kwargs)
 
     def reform_pred(self, model_output, x_t, t, return_x0 = False):
@@ -473,7 +497,7 @@ class Trainer:
         self.model = model.to(self.device)
         self.prediction = prediction
         self.timesteps = timesteps
-        self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
+        self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal'] else False
         self.vae = vae
         self.vae_alpha = vae_alpha
         self.noise_scale = kwargs['noise_scale']
@@ -634,8 +658,8 @@ class Sampler:
         self.prediction = prediction
         self.timesteps = timesteps
         self.device = kwargs['device']
-        self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur'] else False
-        self.black = True if degradation in ['fadeblack', 'fadeblack_blur'] else False
+        self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur','fadeblack_blur_bansal'] else False
+        self.black = True if degradation in ['fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal'] else False
         self.gmm = None
         self.add_noise = kwargs['add_noise']
         self.vae = kwargs['vae']
@@ -791,7 +815,8 @@ class Sampler:
                     xtm1 = self.degradation.degrade(x0, t_tensor-1) 
                     pred = model(xt, t_tensor, xtm1)
 
-                xt = xt + model.vae_noise # VAE Noise injection
+                # DO NOT USE ANYMORE - VAE NOISE IS ALREADY ADDED INTERNALLY
+                #xt = xt + model.vae_noise # VAE Noise injection
 
             else:
                 if self.add_noise:
@@ -817,11 +842,16 @@ class Sampler:
                     xtm1_hat = xt + pred
                 else:
                     xtm1_hat = pred
-
+                
                 # To cancel out the effect of target weighting from training
                 if self.xt_weighting:
                     weight = (1 - (t_tensor / self.timesteps)).reshape(-1, 1, 1, 1)
                     xtm1_hat = xtm1_hat * weight
+
+                # ## Bansal-style sampling
+                # xtm1_model = xtm1_hat
+                # xt_hat = self.degradation.bansal_blurring_xt(xtm1_hat, t_tensor) 
+                # xtm1_hat = xt - xt_hat + xtm1_model # Counter the bias of the model prediction by having it incorporated two times in the sampling process
 
                 xt = xtm1_hat
                 samples.append(xt)
