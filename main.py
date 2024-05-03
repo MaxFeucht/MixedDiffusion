@@ -107,10 +107,10 @@ def load_dataset(batch_size = 32, dataset = 'mnist'):
                                     transform=T.Compose([T.ToTensor()]))
     
     elif dataset == 'afhq':
-        train_loader = load_data(data_dir="data/AFHQ_64/train",
+        train_loader = load_data(data_dir="./data/AFHQ_64/train",
                                 batch_size=batch_size, image_size=64,
                                 random_flip=False)
-        val_loader = load_data(data_dir="data/AFHQ_64/test",
+        val_loader = load_data(data_dir="./data/AFHQ_64/test",
                                batch_size=batch_size, image_size=64,
                                random_flip=False)
         
@@ -184,7 +184,7 @@ def main(**kwargs):
         plot_degradation(train_loader=trainloader, **kwargs)
     
     x, _ = next(iter(trainloader))   
-    channels, imsize = x[0].shape[0], x[0].shape[-1]
+    channels = x[0].shape[0]
     
     # Define Model
     if kwargs['vae']:
@@ -203,14 +203,14 @@ def main(**kwargs):
 
 
         # Risannen Version
-        unet = VAEUnet(image_size=imsize,
+        unet = VAEUnet(image_size=kwargs['image_size'],
                         in_channels=channels,
                         dim=kwargs['dim'],
                         num_res_blocks=2,
                         attention_levels=(2,) if kwargs['dataset'] == 'mnist' else (2,3),
                         dropout=0.1,
                         ch_mult=(1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
-                        latent_dim=int(channels*imsize*imsize//kwargs['vae_downsample']),
+                        latent_dim=int(channels*kwargs['image_size']*kwargs['image_size']//kwargs['vae_downsample']),
                         noise_scale=kwargs['noise_scale'])
 
     else:
@@ -223,7 +223,7 @@ def main(**kwargs):
         #         attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
         #         dropout=0)
     
-        unet = RisannenUnet(image_size=imsize,
+        unet = RisannenUnet(image_size=kwargs['image_size'],
                             in_channels=channels,
                             dim=kwargs['dim'],
                             num_res_blocks=2,
@@ -247,10 +247,10 @@ def main(**kwargs):
 
     # Fix x_T for sampling
     if kwargs['fix_sample']:
-        sampler.sample_x_T(kwargs['n_samples'], channels, imsize)
+        sampler.sample_x_T(kwargs['n_samples'], channels, kwargs['image_size'])
 
         # Fix Prior for VAE
-        latent_dim = int(channels*imsize*imsize)#//kwargs['vae_downsample'])
+        latent_dim = int(channels*kwargs['image_size']*kwargs['image_size'])#//kwargs['vae_downsample'])
         prior = torch.randn(kwargs['n_samples'], latent_dim).to(kwargs['device'])
         
         #prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
@@ -361,11 +361,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diffusion Models')
 
     # General Diffusion Parameters
-    parser.add_argument('--timesteps', '--t', type=int, default=10, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=100, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
-    parser.add_argument('--batch_size', '--b', type=int, default=128, help='Batch size')
+    parser.add_argument('--batch_size', '--b', type=int, default=32, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=20, help='Number of Training Epochs')
@@ -397,6 +397,13 @@ if __name__ == "__main__":
 
     args.num_downsamples = 2 if args.dataset == 'mnist' else 3
     args.device = 'cuda' if torch.cuda.is_available() else 'mps'
+
+    if args.dataset == 'mnist':
+        args.image_size = 28
+    elif args.dataset == 'cifar10':
+        args.image_size = 32
+    elif args.dataset == 'afhq':
+        args.image_size = 64
 
     if args.vae:
         print("Using VAE Noise Injections")

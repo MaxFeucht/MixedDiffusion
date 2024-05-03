@@ -133,6 +133,7 @@ class Degradation:
         # Blacking
         self.blacking_coefs = scheduler.get_black_schedule(timesteps = timesteps, factor = 0.95, mode = 'linear')
 
+
         # Blurring
         blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
                         'kernel_size': 11 if dataset == 'mnist' else 11, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
@@ -141,7 +142,7 @@ class Degradation:
                         'blur_routine': 'cifar' if dataset == 'cifar10' else 'constant' if dataset == 'mnist' else 'exponential',
                         'mode': 'circular' if dataset == 'mnist' else 'reflect',
                         'dataset': dataset,
-                        'image_size': 28 if dataset == 'mnist' else 32, # 32 if dataset == 'cifar10' else 64,
+                        'image_size': kwargs['image_size'], 
                         'device': self.device} # if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
             
         self.blur = Blurring(**blur_kwargs)
@@ -510,7 +511,8 @@ class Trainer:
                           'degradation': degradation, 
                           'noise_schedule': noise_schedule, 
                           'device': self.device,
-                          'dataset': kwargs['dataset']}
+                          'dataset': kwargs['dataset'],
+                          'image_size': kwargs['image_size']}
         
         self.schedule = Scheduler(device=self.device)
         self.degrader = Degradation(**general_kwargs)
