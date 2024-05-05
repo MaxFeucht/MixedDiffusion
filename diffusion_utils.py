@@ -581,8 +581,6 @@ class Trainer:
             else:
                 pred = model_pred
             
-            pred = model_pred
-
             reconstruction = self.loss.mse_loss(target, pred)
             kl_div = self.model.kl_div
             loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div) #* self.noise_scale)
