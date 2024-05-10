@@ -685,6 +685,8 @@ class VAEEncoder(nn.Module):
                 self._feature_size += ch
                 curr_res = curr_res // 2
         
+        print("Current Resolution: ", curr_res)
+        
         # dense layers for mean and logvar
         self.dense_mean = nn.Linear(input_block_chans[-1]*curr_res*curr_res, latent_dim)
         self.dense_logvar = nn.Linear(input_block_chans[-1]*curr_res*curr_res, latent_dim)

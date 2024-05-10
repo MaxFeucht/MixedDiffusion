@@ -88,10 +88,10 @@ class Scheduler:
             return torch.arange(timesteps, dtype=torch.float32)/100 + 0.35
     
 
-    def get_dct_sigmas(self, timesteps, dataset):
+    def get_dct_sigmas(self, timesteps, image_size):
 
-        dct_sigma_min = 0.5 if dataset == 'mnist' else 0.5 # Only CIFAR-10 is tested for now as alternative
-        dct_sigma_max = 20.0 if dataset == 'mnist' else 24.0
+        dct_sigma_min = 0.5 
+        dct_sigma_max = image_size + 2
         dct_sigmas = torch.exp(torch.linspace(np.log(dct_sigma_min),
                                              np.log(dct_sigma_max), timesteps, device=self.device))
         return dct_sigmas
@@ -136,8 +136,8 @@ class Degradation:
 
         # Blurring
         blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
-                        'kernel_size': 11 if dataset == 'mnist' else 11, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
-                        'kernel_std': 7 if dataset == 'mnist' else 7, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
+                        'kernel_size': 5 if dataset == 'mnist' else 11, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
+                        'kernel_std': 2 if dataset == 'mnist' else 7, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
                         'timesteps': timesteps, 
                         'blur_routine': 'cifar' if dataset == 'cifar10' else 'constant' if dataset == 'mnist' else 'exponential',
                         'mode': 'circular' if dataset == 'mnist' else 'reflect',
@@ -223,7 +223,7 @@ class Degradation:
         return torch.stack(blur_t)
 
 
-    def bansal_blurring_xt(self, x_tm1, t):
+    def bansal_blackblurring_xt(self, x_tm1, t):
         """
         Function to blur an image x at time t.
         
@@ -233,17 +233,21 @@ class Degradation:
         """
 
         x = x_tm1
+
         t_max = torch.max(t)
 
         if t_max == -1:
             return x_tm1
         else:
-            if t_max == (self.timesteps-1):
-                x = torch.mean(x, [2, 3], keepdim=True)
-                x_t = x.expand(x_tm1.shape[0], x_tm1.shape[1], x_tm1.shape[2], x_tm1.shape[3])
-            else:
-                x = x.unsqueeze(0) if len(x.shape) == 2  else x
-                x_t = self.blur.gaussian_kernels[t_max](x).squeeze(0)               
+            # Blur all t that are not max t (Error otherwise)
+            x = x.unsqueeze(0) if len(x.shape) == 2  else x
+            x_t = self.blur.gaussian_kernels[t_max](x).squeeze(0)  
+            
+            # Blacking just for one step
+            mult_tm1 = self.blacking_coefs[t-1] if t_max-1 != -1 else 1.0
+            mult_t = self.blacking_coefs[t]
+            mult = mult_t / mult_tm1
+            x_t = mult * x_t 
 
             return x_t
                 
@@ -296,6 +300,7 @@ class Degradation:
             return self.blacking(self.bansal_blurring(x, t),t)
 
 
+
 class Blurring:
     
     def __init__(self, timesteps, channels, image_size, kernel_size, kernel_std, blur_routine, mode, dataset, device):
@@ -315,7 +320,7 @@ class Blurring:
             self.image_size = image_size
             self.kernel_size = kernel_size
             self.kernel_stds = self.scheduler.get_bansal_blur_schedule(timesteps = timesteps, std = kernel_std, type = blur_routine) 
-            self.dct_sigmas = self.scheduler.get_dct_sigmas(timesteps, dataset = dataset)
+            self.dct_sigmas = self.scheduler.get_dct_sigmas(timesteps, image_size = image_size)
             self.num_timesteps = timesteps
             self.blur_routine = blur_routine
             self.mode = mode
@@ -539,13 +544,14 @@ class Trainer:
         # Degrade and obtain residual
         if self.deterministic:
             x_t = self.degrader.degrade(x_0, t) 
-            
+            x_tm1 = self.degrader.degrade(x_0, t-1)
+
             # Add noise to degrade with - Noise injection a la Risannen
             if self.add_noise:
                 x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
 
-            x_tm1 = self.degrader.degrade(x_0, t-1)
             residual = x_tm1 - x_t 
+            
         else:
             noise = torch.randn_like(x_0, device=self.device) # Important: Noise to degrade with must be the same as the noise that should be predicted
             x_t = self.degrader.degrade(x_0, t, noise=noise)
@@ -569,18 +575,21 @@ class Trainer:
         
         # Get Model prediction with correct output and select appropriate loss
         if self.vae: 
-            model_pred = self.model(x_t, t, x_tm1) # VAE Model needs x_tm1 for prediction. Important: x_tm1 is needed for VAE to run in training mode
+
+            # Condition VAE on target
+            cond = target
+            model_pred = self.model(x_t, t, cond) # VAE Model needs conditioning signal for prediction
 
             # Testing to include VAE Noise into Loss, just as in Risannen. 
             # We do this by adding the noise to x_t and let the model optimize for the difference between the perturbed x_t and xtm1.
-            x_t = x_t + self.model.vae_noise 
+            # x_t = x_t + self.model.vae_noise 
 
             # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
-            if self.prediction == 'xtm1' and (self.add_noise or self.vae):
+            if self.prediction == 'xtm1':
                 pred = (x_t + model_pred)
             else:
                 pred = model_pred
-            
+
             reconstruction = self.loss.mse_loss(target, pred)
             kl_div = self.model.kl_div
             loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div) #* self.noise_scale)
@@ -591,13 +600,14 @@ class Trainer:
             model_pred = self.model(x_t, t)
 
             # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
-            if self.prediction == 'xtm1' and (self.add_noise or self.vae):
+            if self.prediction == 'xtm1':
                 pred = (x_t + model_pred)
             else:
                 pred = model_pred
 
             if not self.deterministic:
                 pred = self.reconstruction.reform_pred(pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
+            
             loss = self.loss.mse_loss(target, pred)
 
             return loss
@@ -816,11 +826,10 @@ class Sampler:
                     pred = model(xt, t_tensor, xtm1)
 
                 # DO NOT USE ANYMORE - VAE NOISE IS ALREADY ADDED INTERNALLY
-                #xt = xt + model.vae_noise # VAE Noise injection
+                # xt = xt + model.vae_noise # VAE Noise injection
 
             else:
-                if self.add_noise:
-                    xt = xt + torch.randn_like(xt, device=self.device) * self.noise_scale     
+
                 pred = model(xt, t_tensor)
 
             # BANSAL ALGORITHM 2
@@ -829,8 +838,6 @@ class Sampler:
                 xt_hat = self.degradation.degrade(x0_hat, t_tensor)
                 xtm1_hat = self.degradation.degrade(x0_hat, t_tensor - 1) # This returns x0_hat for t=0
                 xtm1 = xt - xt_hat + xtm1_hat
-                xt = xtm1
-                samples.append(xt)
 
                 if direct_recons == None:
                     direct_recons = x0_hat
@@ -838,32 +845,34 @@ class Sampler:
 
             # OURS with xt prediction
             elif self.prediction == 'xtm1':
-                if self.add_noise or self.vae: # According to Risannen, the model predicts the residual
-                    xtm1_hat = xt + pred
-                else:
-                    xtm1_hat = pred
-                
+                xtm1 = (xt + pred) if self.add_noise or self.vae else pred # According to Risannen, the model predicts the residual, which stabilizes the training
+
                 # To cancel out the effect of target weighting from training
                 if self.xt_weighting:
                     weight = (1 - (t_tensor / self.timesteps)).reshape(-1, 1, 1, 1)
-                    xtm1_hat = xtm1_hat * weight
+                    xtm1 = xtm1 * weight
 
-                # ## Bansal-style sampling
-                # xtm1_model = xtm1_hat
-                # xt_hat = self.degradation.bansal_blurring_xt(xtm1_hat, t_tensor) 
-                # xtm1_hat = xt - xt_hat + xtm1_model # Counter the bias of the model prediction by having it incorporated two times in the sampling process
-
-                xt = xtm1_hat
-                samples.append(xt)
+                # # Bansal-style sampling
+                # if 'bansal' in self.degradation.degradation:
+                #     xtm1_model = xtm1_hat
+                #     xt_hat = self.degradation.bansal_blackblurring_xt(xtm1_hat, t_tensor) 
+                #     xtm1_hat = xt - xt_hat + xtm1_model # Counter the bias of the model prediction by having it incorporated two times in the sampling process
 
 
             # OURS with residual prediction
             elif self.prediction == 'residual':
                 residual = pred
-                xt = xt + residual
-                samples.append(xt)
+                xtm1 = xt + residual
 
-                
+
+            # In Risannen the noise is added to the predicted image, AFTER the model prediction
+            if self.add_noise:
+                xtm1 = xtm1 + torch.randn_like(xt, device=self.device) * self.noise_scale * 1.25 # 1.25 is a scaling factor from the original Risannen Code (delta = 1.25 * sigma)
+            
+            # Change from xtm1 to xt for next iteration
+            xt = xtm1
+            samples.append(xt)
+
         return samples, xT, direct_recons, xt
 
     

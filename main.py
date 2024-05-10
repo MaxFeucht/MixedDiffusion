@@ -36,7 +36,7 @@ if 'ipykernel' in sys.modules:
 
 def load_dataset(batch_size = 32, dataset = 'mnist'):
     
-    assert dataset in ['mnist', 'cifar10', 'celeba', 'lsun_churches', 'afhq'],f"Invalid dataset, choose from ['mnist', 'cifar10', 'celeba', 'lsun_churches']"
+    assert dataset in ['mnist', 'cifar10', 'celeba', 'lsun_churches', 'afhq'],f"Invalid dataset, choose from ['mnist', 'cifar10', 'celeba', 'lsun_churches', 'afhq']"
 
     # Check if directory exists
     if not os.path.exists(f'./data/{dataset.split("_")[0].upper()}'):
@@ -126,10 +126,11 @@ def load_dataset(batch_size = 32, dataset = 'mnist'):
 
 def plot_degradation(timesteps, train_loader, **kwargs):
 
-    noise = Degradation(timesteps = timesteps, degradation = 'noise', noise_schedule='cosine', dataset=kwargs['dataset'], device=kwargs['device'])
-    blur = Degradation(timesteps = timesteps, degradation = 'blur', noise_schedule='cosine', dataset=kwargs['dataset'], device=kwargs['device'])
-    black = Degradation(timesteps = timesteps, degradation = 'fadeblack', noise_schedule='cosine', dataset=kwargs['dataset'], device=kwargs['device'])
-    black_blur = Degradation(timesteps = timesteps, degradation = 'fadeblack_blur', noise_schedule='cosine', dataset=kwargs['dataset'], device=kwargs['device'])
+    kwargs.pop('degradation')
+    noise = Degradation(timesteps = timesteps, degradation = 'noise', **kwargs)
+    blur = Degradation(timesteps = timesteps, degradation = 'blur', **kwargs)
+    black = Degradation(timesteps = timesteps, degradation = 'fadeblack', **kwargs)
+    black_blur = Degradation(timesteps = timesteps, degradation = 'fadeblack_blur', **kwargs)
 
     timesteps = min(50, timesteps)
 
@@ -185,6 +186,28 @@ def main(**kwargs):
     
     x, _ = next(iter(trainloader))   
     channels = x[0].shape[0]
+
+    # Model Configuration
+    if kwargs['dataset'] == 'mnist':
+        attention_levels = (2,)
+        ch_mult = (1,2,2)
+        num_res_blocks = 2
+    elif kwargs['dataset'] == 'cifar10':
+        attention_levels = (2,3)
+        ch_mult = (1, 2, 2, 2)
+        num_res_blocks = 4
+    elif kwargs['dataset'] == 'afhq':
+        attention_levels = (2,3)
+        ch_mult = (1, 2, 3, 4)
+        num_res_blocks = 4
+    elif kwargs['dataset'] == 'celeba':
+        attention_levels = (2,3)
+        ch_mult = (1, 2, 2, 2)
+    elif kwargs['dataset'] == 'lsun_churches':
+        attention_levels = (2,3,4)
+        ch_mult = (1, 2, 3, 4, 5)
+        num_res_blocks = 4
+
     
     # Define Model
     if kwargs['vae']:
@@ -194,8 +217,8 @@ def main(**kwargs):
         #                 channels=channels,
         #                 out_ch=channels,
         #                 ch=kwargs['dim'],
-        #                 ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
-        #                 num_res_blocks=2,
+        #                 ch_mult= ch_mult,
+        #                 num_res_blocks=num_res_blocks,
         #                 attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
         #                 latent_dim=int(channels*imsize*imsize//kwargs['vae_downsample']),
         #                 noise_scale=kwargs['noise_scale'],
@@ -206,10 +229,10 @@ def main(**kwargs):
         unet = VAEUnet(image_size=kwargs['image_size'],
                         in_channels=channels,
                         dim=kwargs['dim'],
-                        num_res_blocks=2,
-                        attention_levels=(2,) if kwargs['dataset'] == 'mnist' else (2,3),
+                        num_res_blocks=num_res_blocks,
+                        attention_levels=attention_levels,
                         dropout=0.1,
-                        ch_mult=(1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
+                        ch_mult=ch_mult,
                         latent_dim=int(channels*kwargs['image_size']*kwargs['image_size']//kwargs['vae_downsample']),
                         noise_scale=kwargs['noise_scale'])
 
@@ -218,18 +241,18 @@ def main(**kwargs):
         #         channels=channels,
         #         out_ch=channels,
         #         ch=kwargs['dim'],
-        #         ch_mult= (1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2),
-        #         num_res_blocks=2,
+        #         ch_mult= ch_mult,
+        #         num_res_blocks=num_res_blocks,
         #         attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
         #         dropout=0)
     
         unet = RisannenUnet(image_size=kwargs['image_size'],
                             in_channels=channels,
                             dim=kwargs['dim'],
-                            num_res_blocks=2,
-                            attention_levels=(2,) if kwargs['dataset'] == 'mnist' else (2,3),
+                            num_res_blocks=num_res_blocks,
+                            attention_levels=attention_levels,
                             dropout=0.1,
-                            ch_mult=(1,2,2) if kwargs['dataset'] == 'mnist' else (1,2,2,2))
+                            ch_mult=ch_mult)
 
 
     # # Enable Multi-GPU training
@@ -250,9 +273,7 @@ def main(**kwargs):
         sampler.sample_x_T(kwargs['n_samples'], channels, kwargs['image_size'])
 
         # Fix Prior for VAE
-        latent_dim = int(channels*kwargs['image_size']*kwargs['image_size'])#//kwargs['vae_downsample'])
-        prior = torch.randn(kwargs['n_samples'], latent_dim).to(kwargs['device'])
-        
+        prior = torch.randn(kwargs['n_samples'], channels, kwargs['image_size'], kwargs['image_size']).to(kwargs['device'])        
         #prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
         #res = imsize//2**kwargs['num_downsamples']
         #prior = torch.randn(kwargs['n_samples'], res, res).to(kwargs['device'])
@@ -361,20 +382,20 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diffusion Models')
 
     # General Diffusion Parameters
-    parser.add_argument('--timesteps', '--t', type=int, default=10, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=200, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
-    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--dataset', type=str, default='cifar10', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
-    parser.add_argument('--epochs', '--e', type=int, default=20, help='Number of Training Epochs')
+    parser.add_argument('--epochs', '--e', type=int, default=30, help='Number of Training Epochs')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--xt_weighting', action='store_true', help='Whether to use weighting for xt in loss')
     #parser.add_argument('--recursive_x0', action='store_', help='Whether to predict x0 recursively as during sampling')
 
     # Noise Injection Parameters
-    parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
+    parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
     parser.add_argument('--vae_downsample', type=float, default=1, help='To which degree to downsample and repeat the VAE noise injections')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
@@ -416,7 +437,7 @@ if __name__ == "__main__":
 
     if not args.cluster:
         print("Running locally, Cluster =", args.cluster)
-        args.dim = int(args.dim/2)
+        # args.dim = int(args.dim/2)
         if args.device == 'cuda':
             warnings.warn('Consider running model on cluster-scale if CUDA is available')
     
