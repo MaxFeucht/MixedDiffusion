@@ -808,6 +808,7 @@ class Sampler:
         xt = xT
 
         direct_recons = None
+        sampling_noise = None
         samples = []
         samples.append(xT) 
 
@@ -826,6 +827,7 @@ class Sampler:
                     pred = model(xt, t_tensor, xtm1)
 
                 # DO NOT USE ANYMORE - VAE NOISE IS ALREADY ADDED INTERNALLY
+                # DO STILL USE BECAUSE THIS MIGHT BE WHAT'S NEEDED TO MAKE VAE x0 PREDICTIONS WORK - Noise has to be accounted for during sampling
                 # xt = xt + model.vae_noise # VAE Noise injection
 
             else:
@@ -834,6 +836,11 @@ class Sampler:
 
             # BANSAL ALGORITHM 2
             if self.prediction == 'x0':
+                
+                # Remove sampling noise from x0 sampling, AFTER it was used for prediction
+                if sampling_noise is not None:
+                    xt = xt - sampling_noise 
+
                 x0_hat = pred
                 xt_hat = self.degradation.degrade(x0_hat, t_tensor)
                 xtm1_hat = self.degradation.degrade(x0_hat, t_tensor - 1) # This returns x0_hat for t=0
@@ -867,8 +874,9 @@ class Sampler:
 
             # In Risannen the noise is added to the predicted image, AFTER the model prediction
             if self.add_noise:
-                xtm1 = xtm1 + torch.randn_like(xt, device=self.device) * self.noise_scale * 1.25 # 1.25 is a scaling factor from the original Risannen Code (delta = 1.25 * sigma)
-            
+                sampling_noise = torch.randn_like(xt, device=self.device) * self.noise_scale * 1.25 # 1.25 is a scaling factor from the original Risannen Code (delta = 1.25 * sigma)
+                xtm1 = xtm1 + sampling_noise       
+                     
             # Change from xtm1 to xt for next iteration
             xt = xtm1
             samples.append(xt)
