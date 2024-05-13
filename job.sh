@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=cifar_vae
-#SBATCH --time=1:00:00
+#SBATCH --job-name=ax0_adapt
+#SBATCH --time=10:00:00
 #SBATCH -N 1
+#SBATCH -C A100
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
-#SBATCH -C A4000
 #SBATCH --gres=gpu:1
 #SBATCH -o no_output.out
 
@@ -44,14 +44,14 @@ cd /var/scratch/mft520/experiments
 ## Set Vars
 
 lr=2e-4
-batch_size=64
-timesteps=100
+batch_size=32
+timesteps=200
 dim=128
 epochs=1000
-prediction="xtm1"
+prediction="x0"
 degradation="fadeblack_blur"
 noise_schedule="cosine"
-dataset="cifar10"
+dataset="afhq"
 sample_interval=1
 n_samples=72
 model_ema_steps=10
@@ -67,5 +67,5 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --lr $lr --prediction $prediction --degradation $degradation \
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
-                                                --noise_scale $noise_scale --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster --vae #--add_noise #--load_checkpoint
+                                                --noise_scale $noise_scale --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster --add_noise --load_checkpoint #--add_noise #--load_checkpoint
 echo "Script finished"

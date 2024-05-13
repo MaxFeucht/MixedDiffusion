@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=vwc_200
+#SBATCH --job-name=va_x0_cont
 #SBATCH --time=12:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
-#SBATCH -C A4000
+#SBATCH -C A5000
 #SBATCH --gres=gpu:1
 #SBATCH -o vae_output.out
 
@@ -48,17 +48,17 @@ batch_size=128
 timesteps=200
 dim=128
 epochs=1000
-prediction="xtm1"
+prediction="x0"
 degradation="fadeblack_blur"
 noise_schedule="cosine"
-dataset="cifar10"
+dataset="afhq"
 sample_interval=1
 n_samples=72
 model_ema_steps=10
 model_ema_decay=0.995
 vae_alpha=0.999
 noise_scale=0.01
-vae_downsample=128
+vae_downsample=256
 
 
 
@@ -68,5 +68,5 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples \
                                                 --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay --noise_scale $noise_scale \
-                                                --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster --vae --xt_weighting #--add_noise #--load_checkpoint
+                                                --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster --vae --load_checkpoint #--add_noise #--load_checkpoint
 echo "Script finished"
