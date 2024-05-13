@@ -199,7 +199,7 @@ def main(**kwargs):
     elif kwargs['dataset'] == 'afhq':
         attention_levels = (2,3)
         ch_mult = (1, 2, 3, 4)
-        num_res_blocks = 4
+        num_res_blocks = 2
     elif kwargs['dataset'] == 'celeba':
         attention_levels = (2,3)
         ch_mult = (1, 2, 2, 2)
