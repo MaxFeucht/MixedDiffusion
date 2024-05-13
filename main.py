@@ -358,7 +358,7 @@ def main(**kwargs):
                 # Training Process unconditional generation
                 #save_image(gen_xt, os.path.join(imgpath, f'gen_xt_{e}.png'), nrow=nrow)
                 save_image(gen_all_images, os.path.join(imgpath, f'gen_sample_regular_{e}.png'), nrow=nrow)
-                save_video(gen_samples, imgpath, nrow, f'sample_{e}.mp4')
+                #save_video(gen_samples, imgpath, nrow, f'sample_{e}.mp4')
 
 
             # save_gif(samples, imgpath, nrow, f'sample_{e}.gif')

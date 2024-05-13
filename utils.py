@@ -9,8 +9,10 @@ from torchvision.datasets import CelebA
 def create_dirs(**kwargs):
 
     vae_flag = "_vae" if kwargs["vae"] else ""
+    noise_flag = "_noise" if kwargs["add_noise"] else ""
+
     # Check if directory for imgs exists
-    imgpath = f'./imgs/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}'
+    imgpath = f'./imgs/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}{noise_flag}'
     if not os.path.exists(imgpath):
         os.makedirs(imgpath)
     dirs = os.listdir(imgpath)
