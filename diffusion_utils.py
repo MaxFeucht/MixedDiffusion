@@ -443,7 +443,7 @@ class Reconstruction:
 
     def reform_pred(self, model_output, x_t, t, return_x0 = False):
         """
-        Function to reform predictions for a given degraded image x_t at time t, using the output of a trained model and a degrader function.
+        Function to reform predictions for a given degraded image x_t at time t, using the output of a trained model and a degradation function.
         
         :param torch.Tensor model_output: The output of the model - either the residual or the x0 estimate
         :param torch.Tensor x_t: The degraded image at time t
@@ -520,7 +520,7 @@ class Trainer:
                           'image_size': kwargs['image_size']}
         
         self.schedule = Scheduler(device=self.device)
-        self.degrader = Degradation(**general_kwargs)
+        self.degradation = Degradation(**general_kwargs)
         self.reconstruction = Reconstruction(**general_kwargs)
         self.loss = Loss(**general_kwargs)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr, betas=(0.9, 0.99))
@@ -543,8 +543,8 @@ class Trainer:
 
         # Degrade and obtain residual
         if self.deterministic:
-            x_t = self.degrader.degrade(x_0, t) 
-            x_tm1 = self.degrader.degrade(x_0, t-1)
+            x_t = self.degradation.degrade(x_0, t) 
+            x_tm1 = self.degradation.degrade(x_0, t-1)
 
             # Add noise to degrade with - Noise injection a la Risannen
             if self.add_noise:
@@ -554,7 +554,7 @@ class Trainer:
             
         else:
             noise = torch.randn_like(x_0, device=self.device) # Important: Noise to degrade with must be the same as the noise that should be predicted
-            x_t = self.degrader.degrade(x_0, t, noise=noise)
+            x_t = self.degradation.degrade(x_0, t, noise=noise)
             residual = noise
 
         # Define prediction and target
@@ -672,6 +672,7 @@ class Sampler:
         self.black = True if degradation in ['fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal'] else False
         self.gmm = None
         self.add_noise = kwargs['add_noise']
+        self.break_symmetry = kwargs['break_symmetry']
         self.vae = kwargs['vae']
         self.noise_scale = kwargs['noise_scale']
         self.vae_downsample = kwargs['vae_downsample']
@@ -736,6 +737,10 @@ class Sampler:
         elif self.black:
             # Sample x_T from R0
             x_t = torch.zeros((batch_size, channels, image_size, image_size), device=self.device) 
+
+            # For breaking Symmetry in Bansal Baseline
+            if self.break_symmetry:
+                x_t = x_t + torch.randn_like(x_t, device=self.device) * self.noise_scale
         
         elif not self.deterministic:
             # Sample x_T from random normal distribution
@@ -826,10 +831,6 @@ class Sampler:
                     xtm1 = self.degradation.degrade(x0, t_tensor-1) 
                     pred = model(xt, t_tensor, xtm1)
 
-                # DO NOT USE ANYMORE - VAE NOISE IS ALREADY ADDED INTERNALLY
-                # DO STILL USE BECAUSE THIS MIGHT BE WHAT'S NEEDED TO MAKE VAE x0 PREDICTIONS WORK - Noise has to be accounted for during sampling
-                # xt = xt + model.vae_noise # VAE Noise injection
-
             else:
 
                 pred = model(xt, t_tensor)
@@ -852,6 +853,12 @@ class Sampler:
 
             # OURS with xt prediction
             elif self.prediction == 'xtm1':
+
+                # DO NOT USE ANYMORE - VAE NOISE IS ALREADY ADDED INTERNALLY
+                # DO STILL USE BECAUSE THIS MIGHT BE WHAT'S NEEDED TO MAKE VAE x0 PREDICTIONS WORK - Noise has to be accounted for during sampling
+                # if self.vae:    
+                #     xt = xt + model.vae_noise # VAE Noise injection
+
                 xtm1 = (xt + pred) if self.add_noise or self.vae else pred # According to Risannen, the model predicts the residual, which stabilizes the training
 
                 # To cancel out the effect of target weighting from training
@@ -873,9 +880,9 @@ class Sampler:
 
 
             # In Risannen the noise is added to the predicted image, AFTER the model prediction
-            if self.add_noise:
+            if self.add_noise and not t == 0:
                 sampling_noise = torch.randn_like(xt, device=self.device) * self.noise_scale * 1.25 # 1.25 is a scaling factor from the original Risannen Code (delta = 1.25 * sigma)
-                xtm1 = xtm1 + sampling_noise       
+                xtm1 = xtm1 + sampling_noise   
                      
             # Change from xtm1 to xt for next iteration
             xt = xtm1

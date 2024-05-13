@@ -382,9 +382,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diffusion Models')
 
     # General Diffusion Parameters
-    parser.add_argument('--timesteps', '--t', type=int, default=200, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
-    parser.add_argument('--dataset', type=str, default='cifar10', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
@@ -397,8 +397,9 @@ if __name__ == "__main__":
     # Noise Injection Parameters
     parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
-    parser.add_argument('--vae_downsample', type=float, default=1, help='To which degree to downsample and repeat the VAE noise injections')
+    parser.add_argument('--vae_downsample', type=float, default=28, help='To which degree to downsample and repeat the VAE noise injections')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
+    parser.add_argument('--break_symmetry', action='store_true', help='Whether to add noise to xT Bansal et al. style')
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
 
     # Housekeeping Parameters
