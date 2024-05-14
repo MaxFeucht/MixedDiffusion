@@ -768,7 +768,7 @@ class Sampler:
         for t in tqdm(reversed(range(self.timesteps)), desc="DDPM Sampling"):
             samples.append(x_t) 
             t = torch.full((batch_size,), t).to(self.device)
-            z = torch.randn((batch_size, model.channels, model.image_size, model.image_size)).to(self.device)
+            z = torch.randn((batch_size, model.in_channels, model.image_size, model.image_size)).to(self.device)
             posterior_mean_x0, posterior_mean_xt, posterior_var = self.reconstruction.coefs.posterior(t) # Get coefficients for the posterior distribution q(x_{t-1} | x_t, x_0)
             model_pred = model(x_t, t)
             x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
