@@ -329,7 +329,7 @@ def main(**kwargs):
             # Sample
             nrow = 6
 
-            if kwargs['degradation'] == 'noise': # Noise Sampling
+            if kwargs['degradation'] in ['noise', 'fadeblack_noise'] : # Noise Sampling
                 samples, xt = sampler.sample(trainer.model, kwargs['n_samples'])
                 
                 save_image(samples[-1], os.path.join(imgpath, f'sample_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
@@ -384,8 +384,8 @@ if __name__ == "__main__":
     # General Diffusion Parameters
     parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method, choose one of [x0, xtm1, residual]')
-    parser.add_argument('--dataset', type=str, default='cifar10', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
-    parser.add_argument('--degradation', '--deg', type=str, default='noise', help='Degradation method')
+    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_noise', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
@@ -399,7 +399,7 @@ if __name__ == "__main__":
     parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
     parser.add_argument('--vae_downsample', type=float, default=28, help='To which degree to downsample and repeat the VAE noise injections')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
-    parser.add_argument('--break_symmetry', action='store_false', help='Whether to add noise to xT Bansal et al. style')
+    parser.add_argument('--break_symmetry', action='store_true', help='Whether to add noise to xT Bansal et al. style')
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
 
     # Housekeeping Parameters
@@ -413,7 +413,7 @@ if __name__ == "__main__":
     parser.add_argument('--cluster', action='store_true', help='Whether to run script locally')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
 
-    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
 
     args = parser.parse_args()
 

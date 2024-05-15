@@ -124,7 +124,7 @@ class Degradation:
         self.device = kwargs['device']
         scheduler = Scheduler(device = self.device)
         
-        assert degradation in ['noise', 'blur', 'fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal'], 'Invalid degradation type, choose from noise, blur, fadeblack, fadeblack_blur'
+        assert degradation in ['noise', 'blur', 'fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal', 'fadeblack_noise'], 'Invalid degradation type, choose from noise, blur, fadeblack, fadeblack_blur, fadeblack_noise'
         self.degradation = degradation
                 
         # Denoising
@@ -288,6 +288,8 @@ class Degradation:
         """
         if self.degradation == 'noise':
             return self.noising(x, t, noise)
+        elif self.degradation == 'fadeblack_noise':
+            return self.blacking(self.noising(x, t, noise), t)
         elif self.degradation == 'blur':
             return self.dct_blurring(x, t)
         elif self.degradation == 'fadeblack':
@@ -669,7 +671,7 @@ class Sampler:
         self.timesteps = timesteps
         self.device = kwargs['device']
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur','fadeblack_blur_bansal'] else False
-        self.black = True if degradation in ['fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal'] else False
+        self.black = True if degradation in ['fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal', 'fadeblack_noise'] else False
         self.gmm = None
         self.add_noise = kwargs['add_noise']
         self.break_symmetry = kwargs['break_symmetry']
@@ -741,8 +743,8 @@ class Sampler:
             # For breaking Symmetry in Bansal Baseline
             if self.break_symmetry:
                 x_t = x_t + torch.randn_like(x_t, device=self.device) * self.noise_scale
-        
-        elif not self.deterministic:
+
+        elif not self.deterministic and not self.black:
             # Sample x_T from random normal distribution
             x_t = torch.randn((batch_size, channels, image_size, image_size), device=self.device)
         
@@ -773,6 +775,10 @@ class Sampler:
             model_pred = model(x_t, t)
             x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_0_hat.clamp_(-1, 1) # Clip the estimate to the range [-1, 1]
+
+            if self.black:
+                z = z * self.degradation.blacking_coefs[t] # Apply blacking to the noise
+                
             x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x_0_hat + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_t = x_t_m1
         
