@@ -31,14 +31,19 @@ class Scheduler:
         beta_end = scale * 0.02
         return torch.linspace(beta_start, beta_end, timesteps, dtype = torch.float32)
 
-    def cosine(self, timesteps, s = 0.008):
+    def cosine(self, timesteps, s = 0.008, black = False):
         """
         cosine schedule
         as proposed in https://openreview.net/forum?id=-NEXDKk8gZ
         """
-        steps = timesteps + 1
+        steps = timesteps + 1 if not black else timesteps
         t = torch.linspace(0, timesteps, steps, dtype = torch.float32) / timesteps
         alphas_cumprod = torch.cos((t + s) / (1 + s) * math.pi * 0.5) ** 2
+        
+        # If we want the blacking schedule, we return the alphas_cumprod
+        if black == True:
+            return alphas_cumprod
+        
         alphas_cumprod = alphas_cumprod / alphas_cumprod[0]
         betas = 1 - (alphas_cumprod[1:] / alphas_cumprod[:-1])
         return torch.clip(betas, 0, 0.999)
@@ -94,22 +99,29 @@ class Scheduler:
         dct_sigma_max = image_size + 2
         dct_sigmas = torch.exp(torch.linspace(np.log(dct_sigma_min),
                                              np.log(dct_sigma_max), timesteps, device=self.device))
+        if timesteps == 1:
+            dct_sigmas = torch.tensor([dct_sigma_max], device=self.device, dtype = torch.float32)
+
         return dct_sigmas
 
 
-    def get_black_schedule(self, timesteps, factor, mode):
+    def get_black_schedule(self, timesteps, mode, factor = 0.95):
         
         t_range = torch.arange(timesteps, dtype=torch.float32)
 
         if mode == 'linear':
-            coefs = (1 - (t_range+1) / (timesteps)).reshape(-1, 1, 1, 1)  # +1 bc of zero indexing
+            coefs = (1 - (t_range+1) / (timesteps))  # +1 bc of zero indexing
         
         elif mode == 'exponential':
             coefs = factor ** (t_range)  
-            coefs[t_range == self.timesteps-1] = 0.0
-            coefs.reshape(-1, 1, 1, 1)
         
-        return coefs.to(self.device)
+        elif mode == 'cosine':
+            coefs = self.cosine(timesteps, black=True)
+        
+        # Explicitly set the last value to 0
+        coefs[-1] = 0.0
+            
+        return coefs.reshape(-1, 1, 1, 1).to(self.device)
 
 
 
@@ -131,7 +143,7 @@ class Degradation:
         self.noise_coefs = DenoisingCoefs(timesteps=timesteps, noise_schedule=noise_schedule, device = self.device)
 
         # Blacking
-        self.blacking_coefs = scheduler.get_black_schedule(timesteps = timesteps, factor = 0.95, mode = 'linear')
+        self.blacking_coefs = scheduler.get_black_schedule(timesteps = timesteps, mode = 'cosine')
 
 
         # Blurring
@@ -295,11 +307,11 @@ class Degradation:
         elif self.degradation == 'fadeblack':
             return self.blacking(x, t)
         elif self.degradation == 'fadeblack_blur':
-            return self.blacking(self.dct_blurring(x, t),t)
+            return self.blacking(self.dct_blurring(x, t), t)
         elif self.degradation == 'blur_bansal':
             return self.bansal_blurring(x, t)
         elif self.degradation == 'fadeblack_blur_bansal':
-            return self.blacking(self.bansal_blurring(x, t),t)
+            return self.blacking(self.bansal_blurring(x, t), t)
 
 
 
@@ -506,12 +518,13 @@ class Trainer:
         self.prediction = prediction
         self.timesteps = timesteps
         self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal'] else False
+        self.black = True if 'fadeblack' in degradation else False
         self.vae = vae
         self.vae_alpha = vae_alpha
         self.noise_scale = kwargs['noise_scale']
-        self.vae_downsample = kwargs['vae_downsample']
         self.add_noise = kwargs['add_noise']
         self.xt_weighting = kwargs['xt_weighting']
+        self.var_timestep = kwargs['var_timestep']
 
         general_kwargs = {'timesteps': timesteps, 
                           'prediction': prediction,
@@ -541,23 +554,29 @@ class Trainer:
             warnings.warn('No EMA applied')
 
 
-    def train_iter(self, x_0, t):
+    def train_iter(self, x_0, t, t2 = None):
 
         # Degrade and obtain residual
         if self.deterministic:
-            x_t = self.degradation.degrade(x_0, t) 
-            x_tm1 = self.degradation.degrade(x_0, t-1)
+
+            if self.var_timestep:
+                assert t2 is not None, "Second timesteps must be supplied for Variable Timestep Diffusion"
+                x_t = self.degradation.degrade(x_0, t) 
+                x_tm = self.degradation.degrade(x_0, t2) #x_t- = x_t2 with t2 < t
+            else:
+                x_t = self.degradation.degrade(x_0, t) 
+                x_tm = self.degradation.degrade(x_0, t-1) # x_t- = x_t-1
 
             # Add noise to degrade with - Noise injection a la Risannen
             if self.add_noise:
                 x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
 
-            residual = x_tm1 - x_t 
+            residual = x_tm - x_t 
             
         else:
             noise = torch.randn_like(x_0, device=self.device) # Important: Noise to degrade with must be the same as the noise that should be predicted
             x_t = self.degradation.degrade(x_0, t, noise=noise)
-            residual = noise
+            residual = noise 
 
         # Define prediction and target
         if self.prediction == 'residual':
@@ -568,7 +587,7 @@ class Trainer:
             ret_x0 = True
         elif self.prediction == 'xtm1':
             assert self.deterministic, 'xtm1 prediction not compatible with denoising diffusion'
-            target = x_tm1
+            target = x_tm
             if self.xt_weighting:
                 weight = (1 - (t / self.timesteps)).reshape(-1, 1, 1, 1)
                 target = target / weight # Weighting of the target image according to the time step - the higher the time step, the more the target image is upweighted
@@ -610,7 +629,10 @@ class Trainer:
             if not self.deterministic:
                 pred = self.reconstruction.reform_pred(pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
             
-            loss = self.loss.mse_loss(target, pred)
+            if self.prediction == "x0" and not self.add_noise:
+                loss = (target - pred).abs().mean() # L1 penalty for Bansal
+            else:
+                loss = self.loss.mse_loss(target, pred) # L2 penalty for everything else
 
             return loss
     
@@ -634,12 +656,24 @@ class Trainer:
             # Sample t
             t = torch.randint(0, self.timesteps, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
 
+            if self.var_timestep:
+                t2 = []
+                # Select a second timestep that's between 0 and t. Note that t contains a different value for each image in the batch
+                for t_ in t:
+                    if t_ == 0:
+                        t2.append(torch.tensor([-1], dtype=torch.long, device=self.device))
+                    else:
+                        t2.append(torch.randint(0, t_, (1,), dtype=torch.long, device=self.device))
+                t2 = torch.cat(t2)
+            else:
+                t2 = None
+
             if self.vae:
-                loss, reconstruction, kl_div = self.train_iter(x_0, t)
+                loss, reconstruction, kl_div = self.train_iter(x_0, t, t2=t2)
                 epoch_reconstruction += reconstruction.item()
                 epoch_kl_div += kl_div.item()
             else:
-                loss = self.train_iter(x_0, t)
+                loss = self.train_iter(x_0, t, t2=t2)
             
             epoch_loss += loss.item()
 
@@ -677,7 +711,6 @@ class Sampler:
         self.break_symmetry = kwargs['break_symmetry']
         self.vae = kwargs['vae']
         self.noise_scale = kwargs['noise_scale']
-        self.vae_downsample = kwargs['vae_downsample']
         self.xt_weighting = kwargs['xt_weighting']
         
 
@@ -769,17 +802,20 @@ class Sampler:
         samples = []
         for t in tqdm(reversed(range(self.timesteps)), desc="DDPM Sampling"):
             samples.append(x_t) 
-            t = torch.full((batch_size,), t).to(self.device)
+            t_tensor = torch.full((batch_size,), t).to(self.device)
             z = torch.randn((batch_size, model.in_channels, model.image_size, model.image_size)).to(self.device)
-            posterior_mean_x0, posterior_mean_xt, posterior_var = self.reconstruction.coefs.posterior(t) # Get coefficients for the posterior distribution q(x_{t-1} | x_t, x_0)
-            model_pred = model(x_t, t)
-            x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
+            posterior_mean_x0, posterior_mean_xt, posterior_var = self.reconstruction.coefs.posterior(t_tensor) # Get coefficients for the posterior distribution q(x_{t-1} | x_t, x_0)
+            model_pred = model(x_t, t_tensor)
+            x_0_hat = self.reconstruction.reform_pred(model_pred, x_t, t_tensor, return_x0 = True) # Obtain the estimate of x_0 at time t to sample from the posterior distribution q(x_{t-1} | x_t, x_0)
             x_0_hat.clamp_(-1, 1) # Clip the estimate to the range [-1, 1]
 
-            if self.black:
-                z = z * self.degradation.blacking_coefs[t] # Apply blacking to the noise
-                
+            # # Scale noise to same brightness as x_0_hat 
+            # if self.black:
+            #     if t != 0:
+            #         z = posterior_var * z * self.degradation.blacking_coefs[t-1] + (1-posterior_var) * z # Tradeoff between blacked noise and normal noise - The more we are in the fully noisy regime (large post var), we darken noise a lot, when var --> 0, we use original noise more 
+
             x_t_m1 = posterior_mean_xt * x_t + posterior_mean_x0 * x_0_hat + torch.sqrt(posterior_var) * z # Sample x_{t-1} from the posterior distribution q(x_{t-1} | x_t, x_0)
+
             x_t = x_t_m1
         
         return samples, ret_x_T

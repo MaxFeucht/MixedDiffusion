@@ -135,7 +135,7 @@ def plot_degradation(timesteps, train_loader, **kwargs):
     timesteps = min(50, timesteps)
 
     plt.figure(figsize=(16, 5))
-    for i in tqdm(range(timesteps), total = timesteps):
+    for i in range(timesteps):
 
         ind = i
         x, y = next(iter(train_loader)) 
@@ -224,7 +224,6 @@ def main(**kwargs):
         #                 noise_scale=kwargs['noise_scale'],
         #                 dropout=0)
 
-
         # Risannen Version
         unet = VAEUnet(image_size=kwargs['image_size'],
                         in_channels=channels,
@@ -233,8 +232,9 @@ def main(**kwargs):
                         attention_levels=attention_levels,
                         dropout=0.1,
                         ch_mult=ch_mult,
-                        latent_dim=int(channels*kwargs['image_size']*kwargs['image_size']//kwargs['vae_downsample']),
-                        noise_scale=kwargs['noise_scale'])
+                        latent_dim=kwargs['latent_dim'],
+                        noise_scale=kwargs['noise_scale'],
+                        vae_inject = kwargs['vae_inject'])
 
     else:
         # unet = BansalUnet(image_size=imsize,
@@ -272,12 +272,8 @@ def main(**kwargs):
     if kwargs['fix_sample']:
         sampler.sample_x_T(kwargs['n_samples'], channels, kwargs['image_size'])
 
-        # Fix Prior for VAE
-        prior = torch.randn(kwargs['n_samples'], channels, kwargs['image_size'], kwargs['image_size']).to(kwargs['device'])        
-        #prior = torch.randn(kwargs['n_samples'], imsize).to(kwargs['device'])
-        #res = imsize//2**kwargs['num_downsamples']
-        #prior = torch.randn(kwargs['n_samples'], res, res).to(kwargs['device'])
-        
+    # Fix Prior for VAE
+    prior = torch.randn(kwargs['n_samples'], kwargs['latent_dim']).to(kwargs['device'])        
 
     # Create directories
     imgpath, modelpath = create_dirs(**kwargs)
@@ -383,24 +379,25 @@ if __name__ == "__main__":
 
     # General Diffusion Parameters
     parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
-    parser.add_argument('--prediction', '--pred', type=str, default='residual', help='Prediction method, choose one of [x0, xtm1, residual]')
+    parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
-    parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_noise', help='Degradation method')
+    parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=30, help='Number of Training Epochs')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--xt_weighting', action='store_true', help='Whether to use weighting for xt in loss')
-    #parser.add_argument('--recursive_x0', action='store_', help='Whether to predict x0 recursively as during sampling')
+    parser.add_argument('--var_timestep', action='store_true', help='Whether to use variable timestep diffusion')
 
     # Noise Injection Parameters
     parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
-    parser.add_argument('--vae_downsample', type=float, default=28, help='To which degree to downsample and repeat the VAE noise injections')
+    parser.add_argument('--latent_dim', type=float, default=28, help='Which dimension the VAE latent space is supposed to have')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
     parser.add_argument('--break_symmetry', action='store_true', help='Whether to add noise to xT Bansal et al. style')
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
+    parser.add_argument('--vae_inject', type=str, default = 'start', help='Where to inject VAE Noise. One of "start", "bottleneck", "emb".')
 
     # Housekeeping Parameters
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')

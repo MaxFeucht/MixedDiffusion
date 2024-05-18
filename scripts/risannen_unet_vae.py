@@ -565,6 +565,91 @@ class QKVAttention(nn.Module):
         return count_flops_attn(model, _x, y)
 
 
+def vae_injection(vae_encoder, target, xt, emb, noise_scale, xtm1 = None, prior = None):
+
+    """
+    Function to modularize the VAE Noise injection process, independent of where the injection is happening
+    """
+
+    kl_div = None
+
+    # In Training mode, we have xtm1
+    if xtm1 is not None:
+
+        # VAE Encoder
+        mu, logvar = vae_encoder(xt, xtm1, emb)
+
+        # Bring latent parameters to the same shape as the last feature map
+        if mu.flatten(1).shape[-1] < target.flatten(1).shape[-1]:
+            multiplier = int(target.flatten(1).shape[-1] // mu.flatten(1).shape[-1])
+            mu = mu.repeat(1, multiplier) # Flattened image latents, repeated on non-batch dimensions
+            logvar = logvar.repeat(1, multiplier) # Flattened image latents, repeated on non-batch dimensions
+
+        # Reparameterization trick
+        z_sample = th.randn_like(mu) * th.exp(0.5*logvar) + mu
+
+        # KL Divergence for VAE Encoder
+        kl_div = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar).sum(1).mean()
+
+    # In Generation mode, we don't have xtm1
+    else:
+        if prior is None:
+            bs,channels, res = target.shape[0], target.shape[1], target.shape[2]
+            z_sample = th.randn(bs, channels, res, res).to(target.device)
+
+        else:
+            z_sample = prior
+
+
+            # # Reform to 
+            # prior = prior.view(-1, target.shape[1], target.shape[2], target.shape[3])
+
+            # If feature map is not of batch size, resize z_sample
+            if prior.shape[0] != target.shape[0]:
+                z_sample = z_sample[:target.shape[0]]
+
+    # Bring latent to the same shape as the last feature map
+    bs, depth, res = target.shape[0], target.shape[1], target.shape[2]
+    z_sample = z_sample.reshape(bs, depth, res, res) #.expand(-1, depth, -1, -1) # We only expand after we're certain that the VAE injections work on full scale
+    vae_noise = noise_scale * z_sample # Assigning to self.vae_output for outside access
+
+    # Overlay target with VAE Noise
+    output = target + vae_noise 
+
+    return output, vae_noise, kl_div
+
+
+
+def vae_injection_2(vae_encoder, latent_dim, xt, emb, xtm1 = None, prior = None):
+
+    """
+    Function to modularize the VAE Noise injection process, independent of where the injection is happening
+    """
+
+    kl_div = None
+
+    # In Training mode, we have xtm1
+    if xtm1 is not None:
+
+        # VAE Encoder
+        mu, logvar = vae_encoder(xt, xtm1, emb)
+
+        # Reparameterization trick
+        z_sample = th.randn_like(mu) * th.exp(0.5*logvar) + mu
+
+        # KL Divergence for VAE Encoder
+        kl_div = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar).sum(1).mean()
+
+    # In Generation mode, we don't have xtm1
+    else:
+        if prior is None:
+            z_sample = th.randn(xt.shape[0], latent_dim).to(xt.device) # Batch dim * latent dim
+        else:
+            z_sample = prior.to(xt.device)
+
+    return z_sample, kl_div
+
+
 
 
 class VAEEncoder(nn.Module):
@@ -579,6 +664,7 @@ class VAEEncoder(nn.Module):
         dropout,
         ch_mult,
         latent_dim,
+        bottleneck=False,
         use_checkpoint=False
     ):
         super().__init__()
@@ -593,6 +679,7 @@ class VAEEncoder(nn.Module):
         self.dropout = dropout 
         self.channel_mult = ch_mult
         time_embed_dim = dim * 4
+        self.bottleneck = bottleneck
 
         # Default Arguments
         self.conv_resample = True
@@ -607,7 +694,6 @@ class VAEEncoder(nn.Module):
         self.use_scale_shift_norm = False
         self.resblock_updown = False
         self.padding_mode = 'zeros'
-
 
         self.time_embed = nn.Sequential(
             linear(self.model_channels, time_embed_dim),
@@ -770,6 +856,7 @@ class VAEUnet(nn.Module):
         dropout,
         ch_mult,
         latent_dim,
+        vae_inject,
         noise_scale=0.01,
         use_checkpoint=False
     ):
@@ -785,6 +872,10 @@ class VAEUnet(nn.Module):
         self.dropout = dropout 
         self.channel_mult = ch_mult
         time_embed_dim = dim * 4
+        self.latent_dim = latent_dim
+
+        assert vae_inject in ['start', 'bottleneck', 'emb', 'maps'], 'VAE Injection point must be one of [start, bottleneck, emb, maps]'
+        self.vae_inject = vae_inject
 
         # Default Arguments
         self.conv_resample = True
@@ -812,17 +903,47 @@ class VAEUnet(nn.Module):
 
         # VAE injection
         self.vae_encoder = VAEEncoder(image_size, in_channels, dim, num_res_blocks, attention_levels, dropout, ch_mult, latent_dim)
+        
+        if not self.vae_inject == 'maps': # Different treatment for when injection happens at feature maps
+            if self.vae_inject == 'start':
+                target_dim = in_channels * image_size * image_size
+            elif self.vae_inject == 'bottleneck':
+                bottleneck_ch = int(ch_mult[-1]*dim) 
+                feature_dim = int(image_size / 2**(len(ch_mult)-1))
+                target_dim = bottleneck_ch * feature_dim * feature_dim        
+            elif self.vae_inject == 'emb':
+                target_dim = time_embed_dim 
+            elif self.vae_inject == 'maps':
+                target_dim = image_size # Doesn't matter, isn't used
+            else:
+                raise ValueError('VAE Injection point invalid')
+            
+            # Project latent from latent dim to U-Net Dim, depending on injection point
+            self.vae_projection = nn.Linear(latent_dim, target_dim)
 
+        curr_res = image_size
+        self.vae_projections = nn.ModuleList([])
         ch = input_ch = int(self.channel_mult[0] * self.model_channels)
         self.input_blocks = nn.ModuleList(
             [TimestepEmbedSequential(conv_nd(dims, in_channels, ch, 3, padding=1,
                                              padding_mode=self.padding_mode))]
         )
+
+        # Unique projection for each downsample step
+        if self.vae_inject == "maps":
+            self.vae_projections.append(nn.Linear(latent_dim, ch*curr_res*curr_res))
+
         self._feature_size = ch
         input_block_chans = [ch]
         ds = 0  # Counter for selecting the levels where attention is applied
         for level, mult in enumerate(self.channel_mult):
+            
             for _ in range(num_res_blocks):
+
+                # Unique projection for each downsample step
+                if self.vae_inject == "maps":
+                    self.vae_projections.append(nn.Linear(latent_dim, ch*curr_res*curr_res))
+
                 layers = [
                     ResBlock(
                         ch,
@@ -852,6 +973,11 @@ class VAEUnet(nn.Module):
                 input_block_chans.append(ch)
             if level != len(self.channel_mult) - 1:
                 out_ch = ch
+                
+                # Unique projection for each downsample step
+                if self.vae_inject == "maps":
+                    self.vae_projections.append(nn.Linear(latent_dim, ch*curr_res*curr_res))
+
                 self.input_blocks.append(
                     TimestepEmbedSequential(
                         ResBlock(
@@ -876,6 +1002,7 @@ class VAEUnet(nn.Module):
                 input_block_chans.append(ch)
                 ds += 1
                 self._feature_size += ch
+                curr_res = curr_res // 2
 
         self.middle_block = TimestepEmbedSequential(
             ResBlock(
@@ -964,7 +1091,8 @@ class VAEUnet(nn.Module):
                         padding=1, padding_mode=self.padding_mode)),
         )
 
-    def forward(self, xt, timesteps, xtm1 = None, prior=None, y=None):
+
+    def forward(self, xt, timesteps, xtm1 = None, prior=None, y=None, timesteps2 = None):
 
         """
         Apply the model to an input batch.
@@ -981,57 +1109,50 @@ class VAEUnet(nn.Module):
         hs = []
         emb = self.time_embed(timestep_embedding(
             timesteps, self.model_channels))
+        
+        if timesteps2 is not None:
+            emb2 = self.time_embed(timestep_embedding(
+            timesteps2, self.model_channels))
 
-        # if self.num_classes is not None:
-        #     assert y.shape == (xt.shape[0],)
-        #     emb = emb + self.label_emb(y)
+            # For now, t difference because its easier to implement
+            emb = emb - emb2 
         
         # VAE Injection
+        z_sample, self.kl_div = vae_injection_2(self.vae_encoder, 
+                                            latent_dim=self.latent_dim, 
+                                            xt=xt, 
+                                            emb=emb, 
+                                            xtm1=xtm1, 
+                                            prior=prior)
+    
+        if not self.vae_inject == "maps":
+            injection = self.vae_projection(z_sample)
         
-        # In Training mode, we have xtm1
-        if xtm1 is not None:
+        # VAE Injection at start
+        if self.vae_inject == 'start':
+            xt = xt + injection.view(xt.shape[0], xt.shape[1], xt.shape[2], xt.shape[3])
 
-            # VAE Encoder
-            mu, logvar = self.vae_encoder(xt, xtm1, emb)
-
-            # Bring latent parameters to the same shape as the last feature map
-            if mu.flatten(1).shape[-1] < xt.flatten(1).shape[-1]:
-                multiplier = int(xt.flatten(1).shape[-1] // mu.flatten(1).shape[-1])
-                mu = mu.repeat(1, multiplier) # Flattened image latents, repeated on non-batch dimensions
-                logvar = logvar.repeat(1, multiplier) # Flattened image latents, repeated on non-batch dimensions
-
-            # Reparameterization trick
-            z_sample = th.randn_like(mu) * th.exp(0.5*logvar) + mu
-
-            # KL Divergence for VAE Encoder
-            self.kl_div = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar).sum(1).mean()
-
-        # In Generation mode, we don't have xtm1
-        else:
-            if prior is None:
-                bs,channels, res = xt.shape[0], xt.shape[1], xt.shape[2]
-                z_sample = th.randn(bs, channels, res, res).to(xt.device)
-
-            else:
-                z_sample = prior
-
-                # If feature map is not of batch size, resize z_sample
-                if prior.shape[0] != xt.shape[0]:
-                    z_sample = z_sample[:xt.shape[0]]
-
-        # Bring latent to the same shape as the last feature map
-        bs, depth, res = xt.shape[0], xt.shape[1], xt.shape[2]
-        z_sample = z_sample.reshape(bs, depth, res, res) #.expand(-1, depth, -1, -1) # We only expand after we're certain that the VAE injections work on full scale
-        self.vae_noise = self.noise_scale * z_sample # Assigning to self.vae_output for outside access
-
-        xt = xt + self.vae_noise # Delete this line after testing
-
-
+        # VAE Injection at timestep embedding
+        if self.vae_inject == 'emb':
+            emb = emb + injection
+        
         h = xt.type(self.dtype)
-        for module in self.input_blocks:
+        for i, module in enumerate(self.input_blocks):
             h = module(h, emb)
+
+            # Injection added to feature map at every downsample step
+            if self.vae_inject == "maps":
+                
+                injection = self.vae_projections[i](z_sample).view(h.shape[0], h.shape[1], h.shape[2], h.shape[3])
+                h = h + injection
+
             hs.append(h)
         h = self.middle_block(h, emb)
+
+        # VAE Injection at bottleneck
+        if self.vae_inject == 'bottleneck':
+            h = h + injection.view(h.shape[0], h.shape[1], h.shape[2], h.shape[3])
+
         for module in self.output_blocks:
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
