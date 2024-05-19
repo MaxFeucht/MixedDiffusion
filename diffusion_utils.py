@@ -599,7 +599,7 @@ class Trainer:
 
             # Condition VAE on target
             cond = target
-            model_pred = self.model(x_t, t, cond) # VAE Model needs conditioning signal for prediction
+            model_pred = self.model(x_t, t, cond, timesteps2=t2) # VAE Model needs conditioning signal for prediction
 
             # Testing to include VAE Noise into Loss, just as in Risannen. 
             # We do this by adding the noise to x_t and let the model optimize for the difference between the perturbed x_t and xtm1.
@@ -870,8 +870,12 @@ class Sampler:
                         pred = model(xt, t_tensor, xtm1=None, prior=prior)
                 else:
                     # Reconstruction with encoded latent from x0 ground truth
-                    xtm1 = self.degradation.degrade(x0, t_tensor-1) 
-                    pred = model(xt, t_tensor, xtm1)
+                    if self.prediction == 'x0':
+                        cond = x0 
+                    elif self.prediction == 'xtm1':
+                        cond = self.degradation.degrade(x0, t_tensor-1)
+
+                    pred = model(xt, t_tensor, cond)
 
             else:
 

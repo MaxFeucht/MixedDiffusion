@@ -225,7 +225,7 @@ def main(**kwargs):
         #                 dropout=0)
 
         # Risannen Version
-        unet = VAEUnet(image_size=kwargs['image_size'],
+        unet = VAEUnet(image_size=kwargs["image_size"],
                         in_channels=channels,
                         dim=kwargs['dim'],
                         num_res_blocks=num_res_blocks,
@@ -234,7 +234,8 @@ def main(**kwargs):
                         ch_mult=ch_mult,
                         latent_dim=kwargs['latent_dim'],
                         noise_scale=kwargs['noise_scale'],
-                        vae_inject = kwargs['vae_inject'])
+                        vae_inject = kwargs['vae_inject'],
+                        xt_dropout = kwargs['xt_dropout'])
 
     else:
         # unet = BansalUnet(image_size=imsize,
@@ -246,7 +247,7 @@ def main(**kwargs):
         #         attn_resolutions=(14,) if kwargs['dataset'] == 'mnist' else (16,),
         #         dropout=0)
     
-        unet = RisannenUnet(image_size=kwargs['image_size'],
+        unet = RisannenUnet(image_size=kwargs["image_size"],
                             in_channels=channels,
                             dim=kwargs['dim'],
                             num_res_blocks=num_res_blocks,
@@ -270,7 +271,7 @@ def main(**kwargs):
 
     # Fix x_T for sampling
     if kwargs['fix_sample']:
-        sampler.sample_x_T(kwargs['n_samples'], channels, kwargs['image_size'])
+        sampler.sample_x_T(kwargs['n_samples'], channels, kwargs["image_size"])
 
     # Fix Prior for VAE
     prior = torch.randn(kwargs['n_samples'], kwargs['latent_dim']).to(kwargs['device'])        
@@ -385,19 +386,20 @@ if __name__ == "__main__":
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
-    parser.add_argument('--epochs', '--e', type=int, default=30, help='Number of Training Epochs')
+    parser.add_argument('--epochs', '--e', type=int, default=50, help='Number of Training Epochs')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--xt_weighting', action='store_true', help='Whether to use weighting for xt in loss')
-    parser.add_argument('--var_timestep', action='store_true', help='Whether to use variable timestep diffusion')
+    parser.add_argument('--var_timestep', action='store_false', help='Whether to use variable timestep diffusion')
 
     # Noise Injection Parameters
-    parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
+    parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
-    parser.add_argument('--latent_dim', type=float, default=28, help='Which dimension the VAE latent space is supposed to have')
+    parser.add_argument('--latent_dim', type=float, default=4, help='Which dimension the VAE latent space is supposed to have')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
     parser.add_argument('--break_symmetry', action='store_true', help='Whether to add noise to xT Bansal et al. style')
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
-    parser.add_argument('--vae_inject', type=str, default = 'start', help='Where to inject VAE Noise. One of "start", "bottleneck", "emb".')
+    parser.add_argument('--vae_inject', type=str, default = 'emb', help='Where to inject VAE Noise. One of [start, bottleneck, emb].')
+    parser.add_argument('--xt_dropout', type=float, default = 0.4, help='How much of xt is dropped out at every step (to foster reliance on VAE injections)')
 
     # Housekeeping Parameters
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
@@ -424,14 +426,22 @@ if __name__ == "__main__":
     elif args.dataset == 'afhq':
         args.image_size = 64
 
+    if args.var_timestep:
+        var_string = "Using Variable Timestep Diffusion"
+    else:
+        var_string = "Using Sequential Diffusion"
+
     if args.vae:
-        print("Using VAE Noise Injections")
+        setup_string = "using VAE Noise Injections"
         assert not args.add_noise, "Cannot use VAE and add noise at the same time"
     else:
         if args.add_noise:
-            print("Using Risannen Noise Injections")
+            setup_string = "with Risannen Noise Injections"
         else:
-            print("Using Normal U-Net")
+            setup_string = "with Normal U-Net"
+    
+    print(var_string + " " + setup_string)
+
 
     if not args.cluster:
         print("Running locally, Cluster =", args.cluster)

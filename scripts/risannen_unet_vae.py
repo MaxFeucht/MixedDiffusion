@@ -858,6 +858,7 @@ class VAEUnet(nn.Module):
         latent_dim,
         vae_inject,
         noise_scale=0.01,
+        xt_dropout=0,
         use_checkpoint=False
     ):
         super().__init__()
@@ -873,6 +874,7 @@ class VAEUnet(nn.Module):
         self.channel_mult = ch_mult
         time_embed_dim = dim * 4
         self.latent_dim = latent_dim
+        self.xt_dropout = xt_dropout
 
         assert vae_inject in ['start', 'bottleneck', 'emb', 'maps'], 'VAE Injection point must be one of [start, bottleneck, emb, maps]'
         self.vae_inject = vae_inject
@@ -900,6 +902,9 @@ class VAEUnet(nn.Module):
 
         # if self.num_classes is not None:
         #     self.label_emb = nn.Embedding(num_classes, time_embed_dim)
+
+        #Xt Dropout Layer
+        self.xt_dropout_layer = nn.Dropout(xt_dropout)
 
         # VAE injection
         self.vae_encoder = VAEEncoder(image_size, in_channels, dim, num_res_blocks, attention_levels, dropout, ch_mult, latent_dim)
@@ -1119,15 +1124,20 @@ class VAEUnet(nn.Module):
         
         # VAE Injection
         z_sample, self.kl_div = vae_injection_2(self.vae_encoder, 
-                                            latent_dim=self.latent_dim, 
-                                            xt=xt, 
-                                            emb=emb, 
-                                            xtm1=xtm1, 
-                                            prior=prior)
-    
+                                                latent_dim=self.latent_dim, 
+                                                xt=xt, 
+                                                emb=emb, 
+                                                xtm1=xtm1, 
+                                                prior=prior)
+        
+        self.vae_noise = z_sample
+
         if not self.vae_inject == "maps":
             injection = self.vae_projection(z_sample)
         
+        # Xt Dropout to foster Reliance on VAE injections
+        xt = self.xt_dropout_layer(xt)
+
         # VAE Injection at start
         if self.vae_inject == 'start':
             xt = xt + injection.view(xt.shape[0], xt.shape[1], xt.shape[2], xt.shape[3])

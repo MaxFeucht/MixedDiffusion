@@ -4,9 +4,9 @@
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
-#SBATCH -C A5000
+#SBATCH -C A6000
 #SBATCH --gres=gpu:1
-#SBATCH -o vae_output.out
+#SBATCH -o vae_afhq_output.out
 
 ## in the list above, the partition name depends on where you are running your job. 
 ## On DAS5 the default would be `defq` on Lisa the default would be `gpu` or `gpu_shared`
@@ -44,7 +44,7 @@ cd /var/scratch/mft520/experiments
 ## Set Vars
 
 lr=2e-4
-batch_size=128
+batch_size=32
 timesteps=200
 dim=128
 epochs=1000
@@ -52,13 +52,14 @@ prediction="x0"
 degradation="fadeblack_blur"
 noise_schedule="cosine"
 dataset="afhq"
-sample_interval=1
+sample_interval=2
 n_samples=72
 model_ema_steps=10
 model_ema_decay=0.995
 vae_alpha=0.999
 noise_scale=0.01
-vae_downsample=256
+latent_dim=10
+vae_inject="emb"
 
 
 
@@ -66,7 +67,6 @@ vae_downsample=256
 python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size $batch_size --timesteps $timesteps --dim $dim \
                                                 --lr $lr --prediction $prediction --degradation $degradation \
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
-                                                --n_samples $n_samples \
-                                                --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay --noise_scale $noise_scale \
-                                                --vae_alpha $vae_alpha --vae_downsample $vae_downsample --cluster --vae --load_checkpoint #--add_noise #--load_checkpoint
+                                                --n_samples $n_samples --model_ema_steps $model_ema_steps --model_ema_decay $model_ema_decay \
+                                                --noise_scale $noise_scale --latent_dim $latent_dim --vae_alpha $vae_alpha --vae_inject $vae_inject --cluster --vae --load_checkpoint #--add_noise #--load_checkpoint
 echo "Script finished"
