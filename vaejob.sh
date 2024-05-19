@@ -4,7 +4,7 @@
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
-#SBATCH -C A6000
+#SBATCH -C A5000
 #SBATCH --gres=gpu:1
 #SBATCH -o vae_afhq_output.out
 

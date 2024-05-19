@@ -274,7 +274,7 @@ def main(**kwargs):
         sampler.sample_x_T(kwargs['n_samples'], channels, kwargs["image_size"])
 
     # Fix Prior for VAE
-    prior = torch.randn(kwargs['n_samples'], kwargs['latent_dim']).to(kwargs['device'])        
+    prior = torch.randn((kwargs['n_samples'], kwargs['latent_dim'])).to(kwargs['device'])        
 
     # Create directories
     imgpath, modelpath = create_dirs(**kwargs)
