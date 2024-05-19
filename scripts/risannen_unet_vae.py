@@ -635,7 +635,7 @@ def vae_injection_2(vae_encoder, latent_dim, xt, emb, xtm1 = None, prior = None)
         mu, logvar = vae_encoder(xt, xtm1, emb)
 
         # Reparameterization trick
-        z_sample = th.randn_like(mu) * th.exp(0.5*logvar) + mu
+        z_sample = th.randn_like(logvar) * th.exp(0.5*logvar) + mu
 
         # KL Divergence for VAE Encoder
         kl_div = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar).sum(1).mean()

@@ -10,6 +10,7 @@ from utils import save_image
 import os
 
 import dct_blur as torch_dct
+from ema import ExponentialMovingAverage
 import numpy as np
 
 #from scripts.vae_unet_full import VAEEncoderStandAlone as VAEEncoder
@@ -544,11 +545,7 @@ class Trainer:
 
         # Define Model EMA
         if self.apply_ema:
-            self.ema_steps = kwargs['model_ema_steps']
-            adjust = 1 * kwargs['batch_size'] * self.ema_steps / kwargs['epochs'] # The 1 in the beginning is symbolizing the number of distributed processes (1 for single GPU) 
-            alpha = 1.0 - kwargs['model_ema_decay']
-            alpha = min(1.0, alpha * adjust)
-            self.model_ema = ExponentialMovingAverage(self.model, device=kwargs['device'], decay=1.0 - alpha).to(self.device)
+            self.model_ema = ExponentialMovingAverage(self.model.parameters(), decay=kwargs['model_ema_decay'])
         else:
             self.model_ema = model
             warnings.warn('No EMA applied')
@@ -630,10 +627,13 @@ class Trainer:
                 pred = self.reconstruction.reform_pred(pred, x_t, t, return_x0=ret_x0) # Model prediction in correct form with coefficients applied
             
             if self.prediction == "x0" and not self.add_noise:
-                loss = (target - pred).abs().mean() # L1 penalty for Bansal
+                loss = (target - pred).abs() # L1 penalty for Bansal
             else:
-                loss = self.loss.mse_loss(target, pred) # L2 penalty for everything else
+                loss = (target - pred)**2 # L2 penalty for everything else
 
+            # Sum over all pixels before averaging, important for loss scaling
+            loss = torch.sum(loss.reshape(loss.shape[0], -1), dim=-1).mean() 
+            
             return loss
     
     
@@ -679,12 +679,13 @@ class Trainer:
 
             # To Do: Implement Gradient Accumulation
             if not val:
+
                 loss.backward()
                 self.optimizer.step()
                 self.optimizer.zero_grad()
 
-                if self.apply_ema and i % self.ema_steps==0:
-                    self.model_ema.update_parameters(self.model)
+                # Update EMA
+                self.model_ema.update(self.model.parameters())
             
             # Break prematurely if args.test_run
             if self.test_run:
@@ -1024,6 +1025,7 @@ class Sampler:
 
 
     def sample(self, model, batch_size, x0=None, prior=None, generate=False, t_inject=None):
+        
         if self.deterministic:
             return self.sample_cold(model, 
                                     batch_size, 
@@ -1034,20 +1036,21 @@ class Sampler:
         else:
             return self.sample_ddpm(model, batch_size)
         
+        
 
                 
-class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
-    """Maintains moving averages of model parameters using an exponential decay.
-    ``ema_avg = decay * avg_model_param + (1 - decay) * model_param``
-    `torch.optim.swa_utils.AveragedModel <https://pytorch.org/docs/stable/optim.html#custom-averaging-strategies>`_
-    is used to compute the EMA.
-    """
+# class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
+#     """Maintains moving averages of model parameters using an exponential decay.
+#     ``ema_avg = decay * avg_model_param + (1 - decay) * model_param``
+#     `torch.optim.swa_utils.AveragedModel <https://pytorch.org/docs/stable/optim.html#custom-averaging-strategies>`_
+#     is used to compute the EMA.
+#     """
 
-    def __init__(self, model, decay, device="mps"):
-        def ema_avg(avg_model_param, model_param, num_averaged):
-            return decay * avg_model_param + (1 - decay) * model_param
+#     def __init__(self, model, decay, device="mps"):
+#         def ema_avg(avg_model_param, model_param, num_averaged):
+#             return decay * avg_model_param + (1 - decay) * model_param
 
-        super().__init__(model, device, ema_avg, use_buffers=True)
+#         super().__init__(model, device, ema_avg, use_buffers=True)
 
 
 class DCTBlur(nn.Module):

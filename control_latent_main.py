@@ -15,6 +15,7 @@ import torchvision
 from torchvision import datasets
 from torchvision import transforms as T
 from torchvision.utils import save_image
+from torchvision.utils import save_image, make_grid
 
 from scripts.datasets import load_data
 
@@ -176,6 +177,13 @@ def plot_degradation(timesteps, train_loader, **kwargs):
     plt.suptitle('Image degradation', size = 18)
 
 
+def plot_grid(samples, timesteps):
+    grid = make_grid(samples[1:timesteps+1], nrow = 20, padding=0)
+    plt.imshow(grid.cpu().detach().numpy().transpose(1, 2, 0))
+    plt.axis('off')
+    plt.suptitle(f'\nLatent Walk with Standard Normal', fontsize=12)
+    plt.show()
+
 
 def main(**kwargs):
     
@@ -192,17 +200,14 @@ def main(**kwargs):
         attention_levels = (2,)
         ch_mult = (1,2,2)
         num_res_blocks = 2
-        dropout = 0.1
     elif kwargs['dataset'] == 'cifar10':
         attention_levels = (2,3)
         ch_mult = (1, 2, 2, 2)
         num_res_blocks = 4
-        dropout = 0.1
     elif kwargs['dataset'] == 'afhq':
         attention_levels = (2,3)
         ch_mult = (1, 2, 3, 4)
         num_res_blocks = 2
-        dropout = 0.3
     elif kwargs['dataset'] == 'celeba':
         attention_levels = (2,3)
         ch_mult = (1, 2, 2, 2)
@@ -233,7 +238,7 @@ def main(**kwargs):
                         dim=kwargs['dim'],
                         num_res_blocks=num_res_blocks,
                         attention_levels=attention_levels,
-                        dropout=dropout,
+                        dropout=0.1,
                         ch_mult=ch_mult,
                         latent_dim=kwargs['latent_dim'],
                         noise_scale=kwargs['noise_scale'],
@@ -255,7 +260,7 @@ def main(**kwargs):
                             dim=kwargs['dim'],
                             num_res_blocks=num_res_blocks,
                             attention_levels=attention_levels,
-                            dropout=dropout,
+                            dropout=0.1,
                             ch_mult=ch_mult)
 
 
@@ -278,6 +283,7 @@ def main(**kwargs):
 
     # Fix Prior for VAE
     prior = torch.randn((kwargs['n_samples'], kwargs['latent_dim'])).to(kwargs['device'])        
+    prior[:, 0] = prior[:, 0] + 2
 
     # Create directories
     imgpath, modelpath = create_dirs(**kwargs)
@@ -291,7 +297,12 @@ def main(**kwargs):
             trainer.optimizer.load_state_dict(chkpt['optimizer_state_dict'])
             trainer.model_ema.load_state_dict(chkpt['ema_state_dict'])
             epoch_offset = chkpt['epoch']
+            
+            # Replace model params with EMA params 
+            trainer.model_ema.copy_to(trainer.model.parameters()) # Copy EMA params to model
+            
             print("Checkpoint loaded, continuing training from epoch", epoch_offset)
+
         except Exception as e:
             print("No checkpoint found: ", e)
             epoch_offset = 0
@@ -299,86 +310,55 @@ def main(**kwargs):
         epoch_offset = 0
 
 
-    # Training Loop
-    for e in range(epoch_offset + 1, kwargs['epochs']):
+    prior = torch.randn((kwargs['n_samples'], kwargs['latent_dim'])).to(kwargs['device'])        
+    trainer.model.eval()
+
+    t=kwargs['timesteps']
+
+    xT = sampler.x_T
+    xt = xT
+
+    direct_recons = None
+    sampling_noise = None
+
+    global samples
+    samples1 = torch.Tensor(xT[0].unsqueeze(0))
+    samples2 = torch.Tensor(xT[1].unsqueeze(0))
+    samples3 = torch.Tensor(xT[2].unsqueeze(0))
+    samples4 = torch.Tensor(xT[3].unsqueeze(0))
+    samples5 = torch.Tensor(xT[4].unsqueeze(0))
+
+    for t in tqdm(reversed(range(kwargs['timesteps'])), desc=f"Cold Sampling"):
+        t_tensor = torch.full((kwargs['n_samples'],), t, dtype=torch.long).to(kwargs['device']) # t-1 to account for 0 indexing that the model is seeing during training
+                
+        pred = trainer.model(xt, t_tensor, xtm1=None, prior=prior)
+        pred = pred.detach()
+
+        # BANSAL ALGORITHM 2
+        x0_hat = pred
+        xt_hat = sampler.degradation.degrade(x0_hat, t_tensor)
+        xtm1_hat = sampler.degradation.degrade(x0_hat, t_tensor - 1) # This returns x0_hat for t=0
+        xtm1 = xt - xt_hat + xtm1_hat
+
+        if direct_recons == None:
+            direct_recons = x0_hat
         
-        sample_flag = True if (e) % kwargs['sample_interval'] == 0 else False 
+        xt = xtm1
 
-        # Train
-        trainer.model.train()
-        if kwargs['vae']:
-            trainloss, reconstruction, kl_div = trainer.train_epoch(trainloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
-            #if not kwargs['test_run']:
-            wandb.log({"train loss": trainloss,
-                    "reconstruction loss": reconstruction,
-                        "kl divergence": kl_div}, step = e)
-        else:
-            trainloss = trainer.train_epoch(trainloader, val=False)
-            #if not kwargs['test_run']:
-            wandb.log({"train loss": trainloss}, step=e)
+        samples1 = torch.cat((samples1, xt[0].unsqueeze(0)), dim=0)
+        samples2 = torch.cat((samples2, xt[1].unsqueeze(0)), dim=0)
+        samples3 = torch.cat((samples3, xt[2].unsqueeze(0)), dim=0)
+        samples4 = torch.cat((samples4, xt[3].unsqueeze(0)), dim=0)
+        samples5 = torch.cat((samples5, xt[4].unsqueeze(0)), dim=0)
 
-        print(f"Epoch {e} Train Loss: {trainloss}")
-
-        if sample_flag:
-
-            # Validation
-            
-            # Sample from model using EMA parameters
-            trainer.model_ema.store(trainer.model.parameters()) # Store model params
-            trainer.model_ema.copy_to(trainer.model.parameters()) # Copy EMA params to model
-            trainer.model.eval()
-
-            # Sample
-            nrow = 6
-
-            if kwargs['degradation'] in ['noise', 'fadeblack_noise'] : # Noise Sampling
-                
-                samples, xt = sampler.sample(trainer.model, kwargs['n_samples'])
-
-                save_image(samples[-1], os.path.join(imgpath, f'sample_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
-                save_video(samples, imgpath, nrow, f'sample_{e}.mp4')
-            
-            else: # Cold Sampling
-                og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
-                _, xt, direct_recons, all_images = sampler.sample(model = trainer.model, 
-                                                                    #x0=og_img, 
-                                                                    generate=True, 
-                                                                    batch_size = kwargs['n_samples'])
-
-                # Prior is defined above under "fix_sample"
-                gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model, 
-                                                                        batch_size = kwargs['n_samples'], 
-                                                                        generate=True, 
-                                                                        prior=prior)
-                
-                # Training Process conditional generation
-                #save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
-                #save_image(xt, os.path.join(imgpath, f'xt_{e}.png'), nrow=nrow)
-                save_image(all_images, os.path.join(imgpath, f'sample_regular_{e}.png'), nrow=nrow)
-                if kwargs['prediction'] == 'x0':
-                    save_image(direct_recons, os.path.join(imgpath, f'direct_recon_{e}.png'), nrow=nrow)
-
-                # Training Process unconditional generation
-                #save_image(gen_xt, os.path.join(imgpath, f'gen_xt_{e}.png'), nrow=nrow)
-                save_image(gen_all_images, os.path.join(imgpath, f'gen_sample_regular_{e}.png'), nrow=nrow)
-                #save_video(gen_samples, imgpath, nrow, f'sample_{e}.mp4')
-
-            # After sampling, restore model parameters
-            trainer.model_ema.restore(trainer.model.parameters()) # Restore model params
-
-            # save_gif(samples, imgpath, nrow, f'sample_{e}.gif')
-
-            # Save checkpoint
-            if not kwargs['test_run']:
-                chkpt = {
-                    'epoch': e,
-                    'model_state_dict': trainer.model.state_dict(),
-                    'optimizer_state_dict': trainer.optimizer.state_dict(),
-                    'ema_state_dict': trainer.model_ema.state_dict(),
-                }
-                torch.save(chkpt, os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['timesteps']}_{kwargs['prediction']}{ema_flag}.pt"))
-
-
+    
+    # Plot
+    # Permute such that the first, sixth, eleventh, ... image is shown in the first row
+    plot_grid(samples1, kwargs['timesteps'])
+    plot_grid(samples2, kwargs['timesteps'])
+    plot_grid(samples3, kwargs['timesteps'])
+    plot_grid(samples4, kwargs['timesteps'])
+    plot_grid(samples5, kwargs['timesteps'])
 
 
 
@@ -387,12 +367,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diffusion Models')
 
     # General Diffusion Parameters
-    parser.add_argument('--timesteps', '--t', type=int, default=100, help='Degradation timesteps')
-    parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
-    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--timesteps', '--t', type=int, default=200, help='Degradation timesteps')
+    parser.add_argument('--prediction', '--pred', type=str, default='x0', help='Prediction method, choose one of [x0, xtm1, residual]')
+    parser.add_argument('--dataset', type=str, default='afhq', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
-    parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
-    parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
+    parser.add_argument('--batch_size', '--b', type=int, default=32, help='Batch size')
+    parser.add_argument('--dim', '--d', type=int , default=128, help='Model dimension')
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=50, help='Number of Training Epochs')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
@@ -400,22 +380,23 @@ if __name__ == "__main__":
     parser.add_argument('--var_timestep', action='store_true', help='Whether to use variable timestep diffusion')
 
     # Noise Injection Parameters
-    parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
+    parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
-    parser.add_argument('--latent_dim', type=int, default=4, help='Which dimension the VAE latent space is supposed to have')
+    parser.add_argument('--latent_dim', type=int, default=10, help='Which dimension the VAE latent space is supposed to have')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
     parser.add_argument('--break_symmetry', action='store_true', help='Whether to add noise to xT Bansal et al. style')
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
     parser.add_argument('--vae_inject', type=str, default = 'emb', help='Where to inject VAE Noise. One of [start, bottleneck, emb].')
-    parser.add_argument('--xt_dropout', type=float, default = 0.2, help='How much of xt is dropped out at every step (to foster reliance on VAE injections)')
+    parser.add_argument('--xt_dropout', type=float, default = 0, help='How much of xt is dropped out at every step (to foster reliance on VAE injections)')
 
     # Housekeeping Parameters
-    parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
+    parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
     parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
-    parser.add_argument('--n_samples', type=int, default=60, help='Number of samples to generate')
+    parser.add_argument('--n_samples', type=int, default=5, help='Number of samples to generate')
     parser.add_argument('--fix_sample', action='store_false', help='Whether to fix x_T for sampling, to see sample progression')
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
-    parser.add_argument('--model_ema_decay', type=float, default=0.997, help='Model EMA decay')
+    parser.add_argument('--model_ema_steps', type=int, default=10, help='Model EMA steps')
+    parser.add_argument('--model_ema_decay', type=float, default=0.995, help='Model EMA decay')
     parser.add_argument('--cluster', action='store_true', help='Whether to run script locally')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
 
@@ -458,21 +439,17 @@ if __name__ == "__main__":
     
     if args.test_run:
         print("Running Test Run with only one iter per epoch")
-
-    # Initialize wandb
-    wandb.init(
-    project="Diffusion Thesis",
-    config=vars(args))
     
     print("Device: ", args.device)
 
+    print(vars(args))
 
     # Run main function
 
     main(**vars(args))
 
-    # Finish wandb run
-    #if not args.test_run:
-    wandb.finish()
 
     print("Finished Training")
+
+
+#%%
