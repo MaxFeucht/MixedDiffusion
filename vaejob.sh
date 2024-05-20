@@ -1,10 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=va_x0_EMA
+#SBATCH --job-name=va_x0_start
 #SBATCH --time=12:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
-#SBATCH -C A6000
+#SBATCH -C A5000
 #SBATCH --gres=gpu:1
 #SBATCH -o vae_afhq_output.out
 
@@ -43,7 +43,7 @@ cd /var/scratch/mft520/experiments
 
 ## Set Vars
 
-lr=2e-4
+lr=1e-4
 batch_size=32
 timesteps=200
 dim=128
@@ -54,12 +54,12 @@ noise_schedule="cosine"
 dataset="afhq"
 sample_interval=2
 n_samples=72
-model_ema_decay=0.995
+model_ema_decay=0.997
 vae_alpha=0.999
 noise_scale=0.01
 latent_dim=10
-vae_inject="emb"
-xt_dropout=0
+vae_inject="start"
+xt_dropout=0.2
 
 
 # Run the actual experiment. 
@@ -68,5 +68,5 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --model_ema_decay $model_ema_decay --noise_scale $noise_scale \
                                                 --latent_dim $latent_dim --vae_alpha $vae_alpha --vae_inject $vae_inject --xt_dropout $xt_dropout \
-                                                --cluster --vae #--add_noise #--load_checkpoint
+                                                --cluster --vae --var_timestep #--load_checkpoint
 echo "Script finished"
