@@ -609,6 +609,7 @@ class VAEEncoder(nn.Module):
         attention_levels,
         dropout,
         ch_mult,
+        embed_dim,
         latent_dim,
         bottleneck=False,
         use_checkpoint=False
@@ -624,7 +625,7 @@ class VAEEncoder(nn.Module):
         self.attention_levels = attention_levels # (2,3) or (2,)
         self.dropout = dropout 
         self.channel_mult = ch_mult
-        time_embed_dim = dim * 4
+        time_embed_dim = embed_dim
         self.bottleneck = bottleneck
 
         # Default Arguments
@@ -803,6 +804,7 @@ class VAEUnet(nn.Module):
         ch_mult,
         latent_dim,
         vae_inject,
+        var_timestep=False,
         noise_scale=0.01,
         xt_dropout=0,
         use_checkpoint=False
@@ -821,6 +823,7 @@ class VAEUnet(nn.Module):
         time_embed_dim = dim * 4
         self.latent_dim = latent_dim
         self.xt_dropout = xt_dropout
+        self.var_timestep = var_timestep
 
         assert vae_inject in ['start', 'bottleneck', 'emb', 'maps'], 'VAE Injection point must be one of [start, bottleneck, emb, maps]'
         self.vae_inject = vae_inject
@@ -852,9 +855,22 @@ class VAEUnet(nn.Module):
         #Xt Dropout Layer
         self.xt_dropout_layer = nn.Dropout(xt_dropout)
 
-        # VAE injection
-        self.vae_encoder = VAEEncoder(image_size, in_channels, dim, num_res_blocks, attention_levels, dropout, ch_mult, latent_dim)
+        # Variable Timestep Embedding Adjustment
+        if self.var_timestep:
+            time_embed_dim = time_embed_dim * 2 # Double the time embedding dimension to include t2 embedding
+
+        # VAE Encoder
+        self.vae_encoder = VAEEncoder(image_size, 
+                                      in_channels, 
+                                      dim, 
+                                      num_res_blocks, 
+                                      attention_levels, 
+                                      dropout, 
+                                      ch_mult, 
+                                      time_embed_dim,
+                                      latent_dim)
         
+        # VAE Projection
         if not self.vae_inject == 'maps': # Different treatment for when injection happens at feature maps
             if self.vae_inject == 'start':
                 target_dim = in_channels * image_size * image_size
@@ -864,7 +880,7 @@ class VAEUnet(nn.Module):
                 target_dim = bottleneck_ch * feature_dim * feature_dim        
             elif self.vae_inject == 'emb':
                 target_dim = time_embed_dim
-                time_embed_dim = time_embed_dim * 2 # Double the time embedding dimension to be able to concatenate with VAE latent
+                time_embed_dim = time_embed_dim + dim*2 # Increase the time embedding dimension to be able to concatenate with VAE latent
             elif self.vae_inject == 'maps':
                 target_dim = image_size # Doesn't matter, isn't used
             else:
@@ -1067,9 +1083,13 @@ class VAEUnet(nn.Module):
             t2, self.model_channels))
 
             # For now, t difference because its easier to implement
-            emb = emb - emb2 
-        
-        # VAE Injection
+            # emb = emb - emb2
+
+            # Concatenate the VAE latent to the timestep embedding 
+            emb = th.cat([emb, emb2], dim=1) 
+
+
+        # VAE Encoding + Injection
         z_sample, self.kl_div = vae_injection(self.vae_encoder, 
                                                 latent_dim=self.latent_dim, 
                                                 xt=xt, 

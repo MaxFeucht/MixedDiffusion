@@ -235,8 +235,9 @@ def main(**kwargs):
                         attention_levels=attention_levels,
                         dropout=dropout,
                         ch_mult=ch_mult,
-                        latent_dim=kwargs['latent_dim'],
-                        noise_scale=kwargs['noise_scale'],
+                        latent_dim = kwargs['latent_dim'],
+                        noise_scale= kwargs['noise_scale'],
+                        var_timestep=kwargs['var_timestep'],
                         vae_inject = kwargs['vae_inject'],
                         xt_dropout = kwargs['xt_dropout'])
 
