@@ -551,29 +551,29 @@ class Trainer:
             warnings.warn('No EMA applied')
 
 
-    def train_iter(self, x_0, t, t2 = None):
+    def train_iter(self, x_0, t, t2=None, noise=None):
 
         # Degrade and obtain residual
-        if self.deterministic:
-
-            if self.var_timestep:
-                assert t2 is not None, "Second timesteps must be supplied for Variable Timestep Diffusion"
-                x_t = self.degradation.degrade(x_0, t) 
-                x_tm = self.degradation.degrade(x_0, t2) #x_t- = x_t2 with t2 < t
-            else:
-                x_t = self.degradation.degrade(x_0, t) 
-                x_tm = self.degradation.degrade(x_0, t-1) # x_t- = x_t-1
-
-            # Add noise to degrade with - Noise injection a la Risannen
-            if self.add_noise:
-                x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
-
-            residual = x_tm - x_t 
-            
-        else:
+        if not self.deterministic:
             noise = torch.randn_like(x_0, device=self.device) # Important: Noise to degrade with must be the same as the noise that should be predicted
-            x_t = self.degradation.degrade(x_0, t, noise=noise)
+
+        if self.var_timestep:
+            assert t2 is not None, "Second timesteps must be supplied for Variable Timestep Diffusion"
+            x_t = self.degradation.degrade(x_0, t, noise=noise) 
+            x_tm = self.degradation.degrade(x_0, t2, noise=noise) #x_t- = x_t2 with t2 < t
+        else:
+            x_t = self.degradation.degrade(x_0, t, noise=noise) 
+            x_tm = self.degradation.degrade(x_0, t-1, noise=noise) # x_t- = x_t-1
+
+        # Add noise to degrade with - Noise injection a la Risannen
+        if self.add_noise:
+            x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
+
+        if self.deterministic:
+            residual = x_tm - x_t 
+        else:
             residual = noise 
+
 
         # Define prediction and target
         if self.prediction == 'residual':
@@ -583,8 +583,8 @@ class Trainer:
             target = x_0
             ret_x0 = True
         elif self.prediction == 'xtm1':
-            assert self.deterministic, 'xtm1 prediction not compatible with denoising diffusion'
             target = x_tm
+            ret_x0 = False
             if self.xt_weighting:
                 weight = (1 - (t / self.timesteps)).reshape(-1, 1, 1, 1)
                 target = target / weight # Weighting of the target image according to the time step - the higher the time step, the more the target image is upweighted
@@ -596,7 +596,7 @@ class Trainer:
 
             # Condition VAE on target
             cond = target
-            model_pred = self.model(x_t, t, cond, timesteps2=t2) # VAE Model needs conditioning signal for prediction
+            model_pred = self.model(x_t, t, cond, t2=t2) # VAE Model needs conditioning signal for prediction
 
             # Testing to include VAE Noise into Loss, just as in Risannen. 
             # We do this by adding the noise to x_t and let the model optimize for the difference between the perturbed x_t and xtm1.
@@ -615,7 +615,7 @@ class Trainer:
         
         else:
 
-            model_pred = self.model(x_t, t)
+            model_pred = self.model(x_t, t, t2=t2) # Model prediction without VAE
 
             # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
             if self.prediction == 'xtm1':
@@ -633,7 +633,7 @@ class Trainer:
 
             # Sum over all pixels before averaging, important for loss scaling
             loss = torch.sum(loss.reshape(loss.shape[0], -1), dim=-1).mean() 
-            
+            #loss = loss.mean()
             return loss
     
     
@@ -685,7 +685,8 @@ class Trainer:
                 self.optimizer.zero_grad()
 
                 # Update EMA
-                self.model_ema.update(self.model.parameters())
+                if self.apply_ema:
+                    self.model_ema.update(self.model.parameters())
             
             # Break prematurely if args.test_run
             if self.test_run:
@@ -713,6 +714,7 @@ class Sampler:
         self.vae = kwargs['vae']
         self.noise_scale = kwargs['noise_scale']
         self.xt_weighting = kwargs['xt_weighting']
+        self.var_timestep = kwargs['var_timestep']
         
 
     def fit_gmm(self, dataloader, clusters = 1, sample = False):
@@ -837,7 +839,7 @@ class Sampler:
 
 
     @torch.no_grad()
-    def sample_cold(self, model, batch_size = 16, x0=None, generate=False, prior=None, t_inject=None):
+    def sample_cold(self, model, batch_size = 16, x0=None, generate=False, prior=None, t_inject=None, t2=None, t_diff=1):
 
         model.eval()
 
@@ -862,7 +864,10 @@ class Sampler:
 
         for t in tqdm(reversed(range(self.timesteps)), desc=f"Cold Sampling"):
             t_tensor = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
-
+            
+            if self.var_timestep:
+                t2 = torch.full((batch_size,), t-t_diff, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
+    
             if self.vae:
                 if generate:
                     if t_inject is not None: # T_Inject aims to assess the effect of manipulated injections at different timestep
@@ -876,11 +881,11 @@ class Sampler:
                     elif self.prediction == 'xtm1':
                         cond = self.degradation.degrade(x0, t_tensor-1)
 
-                    pred = model(xt, t_tensor, cond)
+                    pred = model(xt, t_tensor, cond, t2=t2)
 
             else:
 
-                pred = model(xt, t_tensor)
+                pred = model(xt, t_tensor, t2=t2)
 
             # BANSAL ALGORITHM 2
             if self.prediction == 'x0':
@@ -1037,20 +1042,6 @@ class Sampler:
             return self.sample_ddpm(model, batch_size)
         
         
-
-                
-# class ExponentialMovingAverage(torch.optim.swa_utils.AveragedModel):
-#     """Maintains moving averages of model parameters using an exponential decay.
-#     ``ema_avg = decay * avg_model_param + (1 - decay) * model_param``
-#     `torch.optim.swa_utils.AveragedModel <https://pytorch.org/docs/stable/optim.html#custom-averaging-strategies>`_
-#     is used to compute the EMA.
-#     """
-
-#     def __init__(self, model, decay, device="mps"):
-#         def ema_avg(avg_model_param, model_param, num_averaged):
-#             return decay * avg_model_param + (1 - decay) * model_param
-
-#         super().__init__(model, device, ema_avg, use_buffers=True)
 
 
 class DCTBlur(nn.Module):

@@ -565,7 +565,8 @@ class QKVAttention(nn.Module):
         return count_flops_attn(model, _x, y)
 
 
-def vae_injection(vae_encoder, target, xt, emb, noise_scale, xtm1 = None, prior = None):
+
+def vae_injection(vae_encoder, latent_dim, xt, emb, cond = None, prior = None):
 
     """
     Function to modularize the VAE Noise injection process, independent of where the injection is happening
@@ -573,66 +574,11 @@ def vae_injection(vae_encoder, target, xt, emb, noise_scale, xtm1 = None, prior 
 
     kl_div = None
 
-    # In Training mode, we have xtm1
-    if xtm1 is not None:
+    # In Training mode, we have the conditioning signal
+    if cond is not None:
 
         # VAE Encoder
-        mu, logvar = vae_encoder(xt, xtm1, emb)
-
-        # Bring latent parameters to the same shape as the last feature map
-        if mu.flatten(1).shape[-1] < target.flatten(1).shape[-1]:
-            multiplier = int(target.flatten(1).shape[-1] // mu.flatten(1).shape[-1])
-            mu = mu.repeat(1, multiplier) # Flattened image latents, repeated on non-batch dimensions
-            logvar = logvar.repeat(1, multiplier) # Flattened image latents, repeated on non-batch dimensions
-
-        # Reparameterization trick
-        z_sample = th.randn_like(mu) * th.exp(0.5*logvar) + mu
-
-        # KL Divergence for VAE Encoder
-        kl_div = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar).sum(1).mean()
-
-    # In Generation mode, we don't have xtm1
-    else:
-        if prior is None:
-            bs,channels, res = target.shape[0], target.shape[1], target.shape[2]
-            z_sample = th.randn(bs, channels, res, res).to(target.device)
-
-        else:
-            z_sample = prior
-
-
-            # # Reform to 
-            # prior = prior.view(-1, target.shape[1], target.shape[2], target.shape[3])
-
-            # If feature map is not of batch size, resize z_sample
-            if prior.shape[0] != target.shape[0]:
-                z_sample = z_sample[:target.shape[0]]
-
-    # Bring latent to the same shape as the last feature map
-    bs, depth, res = target.shape[0], target.shape[1], target.shape[2]
-    z_sample = z_sample.reshape(bs, depth, res, res) #.expand(-1, depth, -1, -1) # We only expand after we're certain that the VAE injections work on full scale
-    vae_noise = noise_scale * z_sample # Assigning to self.vae_output for outside access
-
-    # Overlay target with VAE Noise
-    output = target + vae_noise 
-
-    return output, vae_noise, kl_div
-
-
-
-def vae_injection_2(vae_encoder, latent_dim, xt, emb, xtm1 = None, prior = None):
-
-    """
-    Function to modularize the VAE Noise injection process, independent of where the injection is happening
-    """
-
-    kl_div = None
-
-    # In Training mode, we have xtm1
-    if xtm1 is not None:
-
-        # VAE Encoder
-        mu, logvar = vae_encoder(xt, xtm1, emb)
+        mu, logvar = vae_encoder(xt, cond, emb)
 
         # Reparameterization trick
         z_sample = th.randn_like(logvar) * th.exp(0.5*logvar) + mu
@@ -640,7 +586,7 @@ def vae_injection_2(vae_encoder, latent_dim, xt, emb, xtm1 = None, prior = None)
         # KL Divergence for VAE Encoder
         kl_div = 0.5 * (mu.pow(2) + logvar.exp() - 1 - logvar).sum(1).mean()
 
-    # In Generation mode, we don't have xtm1
+    # In Generation mode, we don't have the conditioning signal
     else:
         if prior is None:
             z_sample = th.randn(xt.shape[0], latent_dim).to(xt.device) # Batch dim * latent dim
@@ -779,7 +725,7 @@ class VAEEncoder(nn.Module):
 
 
 
-    def forward(self, xt, xtm1, emb, y=None):
+    def forward(self, xt, cond, emb, y=None):
         """
         Apply the model to an input batch.
 
@@ -793,7 +739,7 @@ class VAEEncoder(nn.Module):
         ), "must specify y if and only if the model is class-conditional"
 
         # Combine the two images
-        x = th.cat([xt, xtm1], dim=1)
+        x = th.cat([xt, cond], dim=1)
 
         hs = []
 
@@ -917,7 +863,8 @@ class VAEUnet(nn.Module):
                 feature_dim = int(image_size / 2**(len(ch_mult)-1))
                 target_dim = bottleneck_ch * feature_dim * feature_dim        
             elif self.vae_inject == 'emb':
-                target_dim = time_embed_dim 
+                target_dim = time_embed_dim
+                time_embed_dim = time_embed_dim * 2 # Double the time embedding dimension to be able to concatenate with VAE latent
             elif self.vae_inject == 'maps':
                 target_dim = image_size # Doesn't matter, isn't used
             else:
@@ -1097,7 +1044,7 @@ class VAEUnet(nn.Module):
         )
 
 
-    def forward(self, xt, timesteps, xtm1 = None, prior=None, y=None, timesteps2 = None):
+    def forward(self, xt, t, cond=None, prior=None, t2 = None, y=None):
 
         """
         Apply the model to an input batch.
@@ -1113,21 +1060,21 @@ class VAEUnet(nn.Module):
 
         hs = []
         emb = self.time_embed(timestep_embedding(
-            timesteps, self.model_channels))
+            t, self.model_channels))
         
-        if timesteps2 is not None:
+        if t2 is not None:
             emb2 = self.time_embed(timestep_embedding(
-            timesteps2, self.model_channels))
+            t2, self.model_channels))
 
             # For now, t difference because its easier to implement
             emb = emb - emb2 
         
         # VAE Injection
-        z_sample, self.kl_div = vae_injection_2(self.vae_encoder, 
+        z_sample, self.kl_div = vae_injection(self.vae_encoder, 
                                                 latent_dim=self.latent_dim, 
                                                 xt=xt, 
                                                 emb=emb, 
-                                                xtm1=xtm1, 
+                                                cond=cond, 
                                                 prior=prior)
         
         self.vae_noise = z_sample
@@ -1144,7 +1091,7 @@ class VAEUnet(nn.Module):
 
         # VAE Injection at timestep embedding
         if self.vae_inject == 'emb':
-            emb = emb + injection
+            emb = th.cat([emb, injection], dim=1)
         
         h = xt.type(self.dtype)
         for i, module in enumerate(self.input_blocks):

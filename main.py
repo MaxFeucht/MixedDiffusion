@@ -324,9 +324,9 @@ def main(**kwargs):
             # Validation
             
             # Sample from model using EMA parameters
+            trainer.model.eval()
             trainer.model_ema.store(trainer.model.parameters()) # Store model params
             trainer.model_ema.copy_to(trainer.model.parameters()) # Copy EMA params to model
-            trainer.model.eval()
 
             # Sample
             nrow = 6
@@ -340,10 +340,9 @@ def main(**kwargs):
             
             else: # Cold Sampling
                 og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
-                _, xt, direct_recons, all_images = sampler.sample(model = trainer.model, 
-                                                                    #x0=og_img, 
-                                                                    generate=True, 
-                                                                    batch_size = kwargs['n_samples'])
+                _, xt, direct_recons, all_images = sampler.sample(model=trainer.model, 
+                                                                        generate=True, 
+                                                                        batch_size = kwargs['n_samples'])
 
                 # Prior is defined above under "fix_sample"
                 gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model, 
@@ -363,8 +362,8 @@ def main(**kwargs):
                 save_image(gen_all_images, os.path.join(imgpath, f'gen_sample_regular_{e}.png'), nrow=nrow)
                 #save_video(gen_samples, imgpath, nrow, f'sample_{e}.mp4')
 
-            # After sampling, restore model parameters
-            trainer.model_ema.restore(trainer.model.parameters()) # Restore model params
+                # After sampling, restore model parameters
+                trainer.model_ema.restore(trainer.model.parameters()) # Restore model params
 
             # save_gif(samples, imgpath, nrow, f'sample_{e}.gif')
 
@@ -387,12 +386,12 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diffusion Models')
 
     # General Diffusion Parameters
-    parser.add_argument('--timesteps', '--t', type=int, default=100, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
-    parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
+    parser.add_argument('--dim', '--d', type=int , default=32, help='Model dimension')
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=50, help='Number of Training Epochs')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
@@ -406,7 +405,7 @@ if __name__ == "__main__":
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
     parser.add_argument('--break_symmetry', action='store_true', help='Whether to add noise to xT Bansal et al. style')
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
-    parser.add_argument('--vae_inject', type=str, default = 'emb', help='Where to inject VAE Noise. One of [start, bottleneck, emb].')
+    parser.add_argument('--vae_inject', type=str, default = 'start', help='Where to inject VAE Noise. One of [start, bottleneck, emb].')
     parser.add_argument('--xt_dropout', type=float, default = 0.2, help='How much of xt is dropped out at every step (to foster reliance on VAE injections)')
 
     # Housekeeping Parameters
