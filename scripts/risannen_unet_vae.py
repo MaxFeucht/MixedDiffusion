@@ -804,7 +804,7 @@ class VAEUnet(nn.Module):
         ch_mult,
         latent_dim,
         vae_inject,
-        var_timestep=False,
+        var_timestep,
         noise_scale=0.01,
         xt_dropout=0,
         use_checkpoint=False

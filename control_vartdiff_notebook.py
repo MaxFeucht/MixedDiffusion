@@ -35,11 +35,11 @@ parser = argparse.ArgumentParser(description='Diffusion Models')
 
 # General Diffusion Parameters
 parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
-parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
+parser.add_argument('--prediction', '--pred', type=str, default='xtm', help='Prediction method, choose one of [x0, xtm1, residual]')
 parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
 parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
 parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
-parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
+parser.add_argument('--dim', '--d', type=int , default=32, help='Model dimension')
 parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
 parser.add_argument('--epochs', '--e', type=int, default=30, help='Number of Training Epochs')
 parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
@@ -53,7 +53,7 @@ parser.add_argument('--latent_dim', type=float, default=4, help='Which dimension
 parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
 parser.add_argument('--break_symmetry', action='store_true', help='Whether to add noise to xT Bansal et al. style')
 parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
-parser.add_argument('--vae_inject', type=str, default = 'emb', help='Where to inject VAE Noise. One of [start, bottleneck, emb].')
+parser.add_argument('--vae_inject', type=str, default = 'start', help='Where to inject VAE Noise. One of [start, bottleneck, emb].')
 
 # Housekeeping Parameters
 parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
@@ -224,7 +224,8 @@ if kwargs['vae']:
                     ch_mult=ch_mult,
                     latent_dim=kwargs['latent_dim'],
                     noise_scale=kwargs['noise_scale'],
-                    vae_inject = kwargs['vae_inject'])
+                    vae_inject = kwargs['vae_inject'],
+                    var_timestep=kwargs['var_timestep'])
 
 else:
 
@@ -234,7 +235,8 @@ else:
                         num_res_blocks=num_res_blocks,
                         attention_levels=attention_levels,
                         dropout=0.1,
-                        ch_mult=ch_mult)
+                        ch_mult=ch_mult,
+                        var_timestep=kwargs['var_timestep'])
 
 
 
@@ -252,6 +254,7 @@ if kwargs['fix_sample']:
 
 # Create directories
 imgpath, modelpath = create_dirs(**kwargs)
+
 # imgpath = imgpath.replace('imgs', 'imgs/control').split('run')[0]
 # imgpath = os.path.join(imgpath, 'control')
 # if not os.path.exists(imgpath):

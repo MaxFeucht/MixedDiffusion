@@ -399,6 +399,7 @@ if __name__ == "__main__":
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--xt_weighting', action='store_true', help='Whether to use weighting for xt in loss')
     parser.add_argument('--var_timestep', action='store_true', help='Whether to use variable timestep diffusion')
+    parser.add_argument('--baseline', '--sched', type=str, default='xxx', help='Whether to run a baseline model - Risannen, Bansal, VAE')
 
     # Noise Injection Parameters
     parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
@@ -459,6 +460,29 @@ if __name__ == "__main__":
     
     if args.test_run:
         print("Running Test Run with only one iter per epoch")
+
+    if args.baseline == 'risannen':
+        args.vae = False
+        args.add_noise = True
+        args.break_symmetry = False
+        args.prediction = 'xtm'
+        args.noise_scale = 0.01
+    elif args.baseline == 'bansal':
+        args.vae = False
+        args.add_noise = False
+        args.break_symmetry = True
+        args.prediction = 'x0'
+        args.noise_scale = 0.002
+    elif args.baseline == 'vae_xt':
+        args.vae = True
+        args.add_noise = False
+        args.break_symmetry = False
+        args.prediction = 'xtm'
+    elif args.baseline == 'vae_x0':
+        args.vae = True
+        args.add_noise = False
+        args.break_symmetry = False
+        args.prediction = 'x0'
 
     # Initialize wandb
     wandb.init(
