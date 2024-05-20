@@ -582,7 +582,7 @@ class Trainer:
         elif self.prediction == 'x0':
             target = x_0
             ret_x0 = True
-        elif self.prediction == 'xtm1':
+        elif self.prediction == 'xtm':
             target = x_tm
             ret_x0 = False
             if self.xt_weighting:
@@ -603,7 +603,7 @@ class Trainer:
             # x_t = x_t + self.model.vae_noise 
 
             # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
-            if self.prediction == 'xtm1':
+            if self.prediction == 'xtm':
                 pred = (x_t + model_pred)
             else:
                 pred = model_pred
@@ -618,7 +618,7 @@ class Trainer:
             model_pred = self.model(x_t, t, t2=t2) # Model prediction without VAE
 
             # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
-            if self.prediction == 'xtm1':
+            if self.prediction == 'xtm':
                 pred = (x_t + model_pred)
             else:
                 pred = model_pred
@@ -878,7 +878,7 @@ class Sampler:
                     # Reconstruction with encoded latent from x0 ground truth
                     if self.prediction == 'x0':
                         cond = x0 
-                    elif self.prediction == 'xtm1':
+                    elif self.prediction == 'xtm':
                         cond = self.degradation.degrade(x0, t_tensor-1)
 
                     pred = model(xt, t_tensor, cond, t2=t2)
@@ -904,7 +904,7 @@ class Sampler:
     
 
             # OURS with xt prediction
-            elif self.prediction == 'xtm1':
+            elif self.prediction == 'xtm':
 
                 # DO NOT USE ANYMORE - VAE NOISE IS ALREADY ADDED INTERNALLY
                 # DO STILL USE BECAUSE THIS MIGHT BE WHAT'S NEEDED TO MAKE VAE x0 PREDICTIONS WORK - Noise has to be accounted for during sampling

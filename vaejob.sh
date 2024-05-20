@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=va_x0_start
+#SBATCH --job-name=ma_vart_emb
 #SBATCH --time=12:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
@@ -44,21 +44,21 @@ cd /var/scratch/mft520/experiments
 ## Set Vars
 
 lr=1e-4
-batch_size=32
-timesteps=200
+batch_size=64
+timesteps=50
 dim=128
 epochs=1000
-prediction="x0"
+prediction="xtm1"
 degradation="fadeblack_blur"
 noise_schedule="cosine"
-dataset="afhq"
+dataset="mnist"
 sample_interval=2
 n_samples=72
 model_ema_decay=0.997
 vae_alpha=0.999
 noise_scale=0.01
 latent_dim=10
-vae_inject="start"
+vae_inject="emb"
 xt_dropout=0.2
 
 

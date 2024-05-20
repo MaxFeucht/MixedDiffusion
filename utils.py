@@ -14,7 +14,7 @@ def create_dirs(**kwargs):
     var_t_flag = "_vart" if kwargs["var_timestep"] else ""
 
     # Check if directory for imgs exists
-    imgpath = f'./imgs/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}{noise_flag}{var_t_flag}'
+    imgpath = f'./imgs/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}{noise_flag}'
     if not os.path.exists(imgpath):
         os.makedirs(imgpath)
     dirs = os.listdir(imgpath)
@@ -22,7 +22,7 @@ def create_dirs(**kwargs):
     run_counts.sort()
     run_count = run_counts[-1] if run_counts else 0
 
-    imgpath += f'/run_{run_count+1}_{kwargs["prediction"]}_{kwargs["timesteps"]}{vae_inject_flag}'
+    imgpath += f'/run_{run_count+1}_{kwargs["prediction"]}_{kwargs["timesteps"]}{vae_inject_flag}{var_t_flag}'
     os.makedirs(imgpath)
         
     modelpath = f'./models/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}'

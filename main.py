@@ -257,7 +257,8 @@ def main(**kwargs):
                             num_res_blocks=num_res_blocks,
                             attention_levels=attention_levels,
                             dropout=dropout,
-                            ch_mult=ch_mult)
+                            ch_mult=ch_mult,
+                            var_timestep=kwargs['var_timestep'])
 
 
     # # Enable Multi-GPU training
@@ -388,7 +389,7 @@ if __name__ == "__main__":
 
     # General Diffusion Parameters
     parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
-    parser.add_argument('--prediction', '--pred', type=str, default='xtm1', help='Prediction method, choose one of [x0, xtm1, residual]')
+    parser.add_argument('--prediction', '--pred', type=str, default='xtm', help='Prediction method, choose one of [x0, xtm, residual]')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
