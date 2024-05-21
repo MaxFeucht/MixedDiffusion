@@ -879,8 +879,8 @@ class VAEUnet(nn.Module):
                 feature_dim = int(image_size / 2**(len(ch_mult)-1))
                 target_dim = bottleneck_ch * feature_dim * feature_dim        
             elif self.vae_inject == 'emb':
-                target_dim = time_embed_dim
-                time_embed_dim = time_embed_dim + dim*2 # Increase the time embedding dimension to be able to concatenate with VAE latent
+                target_dim = dim*2
+                time_embed_dim = time_embed_dim + target_dim # Increase the time embedding dimension to be able to concatenate with VAE latent
             elif self.vae_inject == 'maps':
                 target_dim = image_size # Doesn't matter, isn't used
             else:
@@ -891,15 +891,17 @@ class VAEUnet(nn.Module):
 
         curr_res = image_size
         self.vae_projections = nn.ModuleList([])
+
+        # Unique projection for each downsample step
+        if self.vae_inject == "maps":
+            self.vae_projections.append(nn.Linear(latent_dim, in_channels*curr_res*curr_res))
+
         ch = input_ch = int(self.channel_mult[0] * self.model_channels)
         self.input_blocks = nn.ModuleList(
             [TimestepEmbedSequential(conv_nd(dims, in_channels, ch, 3, padding=1,
                                              padding_mode=self.padding_mode))]
         )
 
-        # Unique projection for each downsample step
-        if self.vae_inject == "maps":
-            self.vae_projections.append(nn.Linear(latent_dim, ch*curr_res*curr_res))
 
         self._feature_size = ch
         input_block_chans = [ch]
@@ -1078,7 +1080,7 @@ class VAEUnet(nn.Module):
         emb = self.time_embed(timestep_embedding(
             t, self.model_channels))
         
-        if t2 is not None:
+        if self.var_timestep:
             emb2 = self.time_embed(timestep_embedding(
             t2, self.model_channels))
 
@@ -1115,14 +1117,13 @@ class VAEUnet(nn.Module):
         
         h = xt.type(self.dtype)
         for i, module in enumerate(self.input_blocks):
-            h = module(h, emb)
 
             # Injection added to feature map at every downsample step
-            if self.vae_inject == "maps":
-                
+            if self.vae_inject == "maps" and i > 0:
                 injection = self.vae_projections[i](z_sample).view(h.shape[0], h.shape[1], h.shape[2], h.shape[3])
                 h = h + injection
 
+            h = module(h, emb)
             hs.append(h)
         h = self.middle_block(h, emb)
 

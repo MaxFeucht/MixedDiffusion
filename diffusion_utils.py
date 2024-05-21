@@ -486,7 +486,9 @@ class Reconstruction:
             else:
                 residual = (xt_coef * x_t - x0_estimate) / residual_coef
                 return residual      
-        
+        elif self.prediction == 'xt':
+            ## TBD
+            return model_output
         else:
             raise ValueError('Invalid prediction type')
         
@@ -582,11 +584,12 @@ class Trainer:
         elif self.prediction == 'x0':
             target = x_0
             ret_x0 = True
-        elif self.prediction == 'xtm':
+        elif self.prediction == 'xt':
             target = x_tm
             ret_x0 = False
             if self.xt_weighting:
-                weight = (1 - (t / self.timesteps)).reshape(-1, 1, 1, 1)
+                weight = self.degradation.blacking_coefs[t-1].reshape(-1, 1, 1, 1)
+                weight[t == 0] = 1.0
                 target = target / weight # Weighting of the target image according to the time step - the higher the time step, the more the target image is upweighted
         else:
             raise ValueError('Invalid prediction type')
@@ -596,6 +599,7 @@ class Trainer:
 
             # Condition VAE on target
             cond = target
+            #cond = x_0
             model_pred = self.model(x_t, t, cond, t2=t2) # VAE Model needs conditioning signal for prediction
 
             # Testing to include VAE Noise into Loss, just as in Risannen. 
@@ -603,7 +607,7 @@ class Trainer:
             # x_t = x_t + self.model.vae_noise 
 
             # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
-            if self.prediction == 'xtm':
+            if self.prediction == 'xt':
                 pred = (x_t + model_pred)
             else:
                 pred = model_pred
@@ -618,7 +622,7 @@ class Trainer:
             model_pred = self.model(x_t, t, t2=t2) # Model prediction without VAE
 
             # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
-            if self.prediction == 'xtm':
+            if self.prediction == 'xt':
                 pred = (x_t + model_pred)
             else:
                 pred = model_pred
@@ -878,7 +882,7 @@ class Sampler:
                     # Reconstruction with encoded latent from x0 ground truth
                     if self.prediction == 'x0':
                         cond = x0 
-                    elif self.prediction == 'xtm':
+                    elif self.prediction == 'xt':
                         cond = self.degradation.degrade(x0, t_tensor-1)
 
                     pred = model(xt, t_tensor, cond, t2=t2)
@@ -904,7 +908,7 @@ class Sampler:
     
 
             # OURS with xt prediction
-            elif self.prediction == 'xtm':
+            elif self.prediction == 'xt':
 
                 # DO NOT USE ANYMORE - VAE NOISE IS ALREADY ADDED INTERNALLY
                 # DO STILL USE BECAUSE THIS MIGHT BE WHAT'S NEEDED TO MAKE VAE x0 PREDICTIONS WORK - Noise has to be accounted for during sampling
@@ -915,8 +919,10 @@ class Sampler:
 
                 # To cancel out the effect of target weighting from training
                 if self.xt_weighting:
-                    weight = (1 - (t_tensor / self.timesteps)).reshape(-1, 1, 1, 1)
-                    xtm1 = xtm1 * weight
+                    #weight = (1 - (t_tensor / self.timesteps)).reshape(-1, 1, 1, 1)
+                    weight = self.degradation.blacking_coefs[t_tensor-1].reshape(-1, 1, 1, 1)
+                    weight[t_tensor == 0] = 1.0
+                    xtm1 = xtm1 * weight #self.weight
 
                 # # Bansal-style sampling
                 # if 'bansal' in self.degradation.degradation:
