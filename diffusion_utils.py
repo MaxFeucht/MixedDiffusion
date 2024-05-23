@@ -668,7 +668,7 @@ class Trainer:
                     if t_ == 0:
                         t2.append(torch.tensor([-1], dtype=torch.long, device=self.device))
                     else:
-                        t2.append(torch.randint(0, t_, (1,), dtype=torch.long, device=self.device))
+                        t2.append(torch.randint(-1, t_, (1,), dtype=torch.long, device=self.device))
                 t2 = torch.cat(t2)
             else:
                 t2 = None
@@ -875,7 +875,7 @@ class Sampler:
             
             # Sample t2 for variable xt prediction
             if self.prediction == 'vxt':
-                if t_diff == -1: # Equals to x0 prediction
+                if t_diff <= 0: # Equals to x0 prediction
                     t2 = torch.full((batch_size,), -1, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
                 elif t_diff > 0: # Equals to xt prediction of variable timestep
                     t2 = torch.full((batch_size,), t-t_diff, dtype=torch.long).to(self.device)
@@ -891,8 +891,8 @@ class Sampler:
                 # Remove sampling noise from x0 sampling, AFTER it was used for prediction
                 if sampling_noise is not None:
                     xt = xt - sampling_noise 
-
-                x0_hat = pred
+                
+                x0_hat = (xt + pred) if self.prediction == 'vxt' else pred 
                 xt_hat = self.degradation.degrade(x0_hat, t_tensor)
                 xtm1_hat = self.degradation.degrade(x0_hat, t_tensor - 1) # This returns x0_hat for t=0
                 xtm1 = xt - xt_hat + xtm1_hat

@@ -2,7 +2,7 @@
 #SBATCH --job-name=va_s.3_20
 #SBATCH --time=14:00:00
 #SBATCH -N 1
-#SBATCH -C A6000
+#SBATCH -C A100
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
 #SBATCH --gres=gpu:1
@@ -48,7 +48,7 @@ batch_size=32
 timesteps=50
 dim=128
 epochs=1000
-prediction="xt"
+prediction="vxt"
 degradation="fadeblack_blur"
 noise_schedule="cosine"
 dataset="afhq"
@@ -58,7 +58,7 @@ model_ema_decay=0.997
 vae_alpha=0.998
 noise_scale=0.01
 latent_dim=32
-vae_inject="start"
+vae_inject="add"
 xt_dropout=0.2
 
 

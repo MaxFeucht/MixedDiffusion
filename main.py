@@ -314,15 +314,15 @@ def main(**kwargs):
         trainer.model.train()
         if kwargs['vae']:
             trainloss, reconstruction, kl_div = trainer.train_epoch(trainloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
-            #if not kwargs['test_run']:
-            wandb.log({"train loss": trainloss,
-                    "reconstruction loss": reconstruction,
-                        "kl divergence": kl_div}, step = e)
+            if not kwargs['test_run']:
+                wandb.log({"train loss": trainloss,
+                        "reconstruction loss": reconstruction,
+                            "kl divergence": kl_div}, step = e)
             print(f"Epoch {e} Train Loss: {trainloss}, \nReconstruction Loss: {reconstruction}, \nKL Divergence: {kl_div}")
         else:
             trainloss = trainer.train_epoch(trainloader, val=False)
-            #if not kwargs['test_run']:
-            wandb.log({"train loss": trainloss}, step=e)
+            if not kwargs['test_run']:
+                wandb.log({"train loss": trainloss}, step=e)
             print(f"Epoch {e} Train Loss: {trainloss}")
 
         if sample_flag:
@@ -394,7 +394,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diffusion Models')
 
     # General Diffusion Parameters
-    parser.add_argument('--timesteps', '--t', type=int, default=20, help='Degradation timesteps')
+    parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='vxt', help='Prediction method, choose one of [x0, xt, residual]')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
@@ -428,7 +428,7 @@ if __name__ == "__main__":
     parser.add_argument('--cluster', action='store_true', help='Whether to run script locally')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
 
-    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
 
     args = parser.parse_args()
 
@@ -492,9 +492,10 @@ if __name__ == "__main__":
         args.prediction = 'x0'
 
     # Initialize wandb
-    wandb.init(
-    project="Diffusion Thesis",
-    config=vars(args))
+    if not args.test_run:
+        wandb.init(
+        project="Diffusion Thesis",
+        config=vars(args))
     
     print("Device: ", args.device)
 
@@ -504,7 +505,7 @@ if __name__ == "__main__":
     main(**vars(args))
 
     # Finish wandb run
-    #if not args.test_run:
-    wandb.finish()
+    if not args.test_run:
+        wandb.finish()
 
     print("Finished Training")

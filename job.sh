@@ -2,11 +2,11 @@
 #SBATCH --job-name=ris_base
 #SBATCH --time=14:00:00
 #SBATCH -N 1
-#SBATCH -C A6000
+#SBATCH -C A5000
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
 #SBATCH --gres=gpu:1
-#SBATCH -o vae_mnist_output.out
+#SBATCH -o ris_base.out
 
 ## in the list above, the partition name depends on where you are running your job. 
 ## On DAS5 the default would be `defq` on Lisa the default would be `gpu` or `gpu_shared`
@@ -58,7 +58,7 @@ model_ema_decay=0.997
 vae_alpha=0.998
 noise_scale=0.01
 latent_dim=32
-vae_inject="start"
+vae_inject="add"
 xt_dropout=0
 var_sampling_step=-1
 
