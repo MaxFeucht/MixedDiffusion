@@ -28,6 +28,9 @@ from scripts.risannen_unet_vae import VAEUnet
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
 from utils import create_dirs, save_video, save_gif, MyCelebA
 
+import torch.multiprocessing as mp
+mp.set_start_method('spawn', force=True)
+
 # Check if ipykernel is running to check if we're working locally or on the cluster
 import sys
 if 'ipykernel' in sys.modules:
@@ -237,7 +240,8 @@ def main(**kwargs):
                         ch_mult=ch_mult,
                         latent_dim = kwargs['latent_dim'],
                         noise_scale= kwargs['noise_scale'],
-                        var_timestep=kwargs['var_timestep'],
+                        var_timestep=True if kwargs['prediction'] == 'vxt' else False,
+                        vae_loc = kwargs['vae_loc'],
                         vae_inject = kwargs['vae_inject'],
                         xt_dropout = kwargs['xt_dropout'])
 
@@ -258,7 +262,7 @@ def main(**kwargs):
                             attention_levels=attention_levels,
                             dropout=dropout,
                             ch_mult=ch_mult,
-                            var_timestep=kwargs['var_timestep'])
+                            var_timestep=True if kwargs['prediction'] == 'vxt' else False)
 
 
     # # Enable Multi-GPU training
@@ -344,13 +348,15 @@ def main(**kwargs):
                 og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
                 _, xt, direct_recons, all_images = sampler.sample(model=trainer.model, 
                                                                         generate=True, 
-                                                                        batch_size = kwargs['n_samples'])
+                                                                        batch_size = kwargs['n_samples'],
+                                                                        t_diff=kwargs['var_sampling'])
 
                 # Prior is defined above under "fix_sample"
                 gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model, 
                                                                         batch_size = kwargs['n_samples'], 
                                                                         generate=True, 
-                                                                        prior=prior)
+                                                                        prior=prior,
+                                                                        t_diff=kwargs['var_sampling'])
                 
                 # Training Process conditional generation
                 #save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
@@ -388,8 +394,8 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Diffusion Models')
 
     # General Diffusion Parameters
-    parser.add_argument('--timesteps', '--t', type=int, default=10, help='Degradation timesteps')
-    parser.add_argument('--prediction', '--pred', type=str, default='xt', help='Prediction method, choose one of [x0, xt, residual]')
+    parser.add_argument('--timesteps', '--t', type=int, default=20, help='Degradation timesteps')
+    parser.add_argument('--prediction', '--pred', type=str, default='vxt', help='Prediction method, choose one of [x0, xt, residual]')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
     parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
@@ -397,19 +403,20 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=20, help='Number of Training Epochs')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
-    parser.add_argument('--xt_weighting', action='store_false', help='Whether to use weighting for xt in loss')
-    parser.add_argument('--var_timestep', action='store_true', help='Whether to use variable timestep diffusion')
+    parser.add_argument('--xt_weighting', action='store_true', help='Whether to use weighting for xt in loss')
+    parser.add_argument('--var_sampling', type=int, default = -1, help='How to sample var timestep model - int > 0 indicates t difference to predict, -1 indicates x0 prediction')
     parser.add_argument('--baseline', '--base', type=str, default='xxx', help='Whether to run a baseline model - Risannen, Bansal, VAE')
 
     # Noise Injection Parameters
     parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
-    parser.add_argument('--latent_dim', type=int, default=10, help='Which dimension the VAE latent space is supposed to have')
+    parser.add_argument('--latent_dim', type=int, default=32, help='Which dimension the VAE latent space is supposed to have')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
     parser.add_argument('--break_symmetry', action='store_true', help='Whether to add noise to xT Bansal et al. style')
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
-    parser.add_argument('--vae_inject', type=str, default = 'start', help='Where to inject VAE Noise. One of [start, bottleneck, emb].')
-    parser.add_argument('--xt_dropout', type=float, default = 0, help='How much of xt is dropped out at every step (to foster reliance on VAE injections)')
+    parser.add_argument('--vae_loc', type=str, default = 'start', help='Where to inject VAE Noise. One of [start, bottleneck, emb].')
+    parser.add_argument('--vae_inject', type=str, default = 'add', help='How to inject VAE Noise. One of [concat, add].')
+    parser.add_argument('--xt_dropout', type=float, default = 0.3, help='How much of xt is dropped out at every step (to foster reliance on VAE injections)')
 
     # Housekeeping Parameters
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
@@ -435,7 +442,7 @@ if __name__ == "__main__":
     elif args.dataset == 'afhq':
         args.image_size = 64
 
-    if args.var_timestep:
+    if args.prediction == 'vxt':
         var_string = "Running Variable Timestep Diffusion"
     else:
         var_string = "Running Sequential Diffusion"

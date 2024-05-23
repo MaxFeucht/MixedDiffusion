@@ -11,7 +11,7 @@ def create_dirs(**kwargs):
     vae_flag = "_vae" if kwargs["vae"] else ""
     noise_flag = "_noise" if kwargs["add_noise"] else ""
     vae_inject_flag = "_" + kwargs["vae_inject"] if kwargs["vae"] else ""
-    var_t_flag = "_vart" if kwargs["var_timestep"] else ""
+    var_t_flag = "_vart" if kwargs["prediction"] == 'vxt' else ""
 
     # Check if directory for imgs exists
     imgpath = f'./imgs/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}{noise_flag}'

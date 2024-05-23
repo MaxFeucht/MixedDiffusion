@@ -527,7 +527,6 @@ class Trainer:
         self.noise_scale = kwargs['noise_scale']
         self.add_noise = kwargs['add_noise']
         self.xt_weighting = kwargs['xt_weighting']
-        self.var_timestep = kwargs['var_timestep']
 
         general_kwargs = {'timesteps': timesteps, 
                           'prediction': prediction,
@@ -559,26 +558,24 @@ class Trainer:
         if not self.deterministic:
             noise = torch.randn_like(x_0, device=self.device) # Important: Noise to degrade with must be the same as the noise that should be predicted
 
-        if self.var_timestep:
+        x_t = self.degradation.degrade(x_0, t, noise=noise) 
+        if self.prediction == 'vxt':
             assert t2 is not None, "Second timesteps must be supplied for Variable Timestep Diffusion"
-            x_t = self.degradation.degrade(x_0, t, noise=noise) 
-            x_tm = self.degradation.degrade(x_0, t2, noise=noise) #x_t- = x_t2 with t2 < t
-        else:
-            x_t = self.degradation.degrade(x_0, t, noise=noise) 
+            vxt = self.degradation.degrade(x_0, t2, noise=noise) #x_t- = x_t2 with t2 < t
+        elif self.prediction == 'xt':
             x_tm = self.degradation.degrade(x_0, t-1, noise=noise) # x_t- = x_t-1
 
         # Add noise to degrade with - Noise injection a la Risannen
         if self.add_noise:
             x_t = x_t + torch.randn_like(x_0, device=self.device) * self.noise_scale
 
-        if self.deterministic:
-            residual = x_tm - x_t 
-        else:
+        if not self.deterministic:
             residual = noise 
 
 
         # Define prediction and target
         if self.prediction == 'residual':
+            assert not self.deterministic, 'Residual prediction only possible for Denoising Diffusion'
             target = residual
             ret_x0 = False
         elif self.prediction == 'x0':
@@ -591,6 +588,9 @@ class Trainer:
                 weight = self.degradation.blacking_coefs[t-1].reshape(-1, 1, 1, 1)
                 weight[t == 0] = 1.0
                 target = target / weight # Weighting of the target image according to the time step - the higher the time step, the more the target image is upweighted
+        elif self.prediction == 'vxt':
+            target = vxt
+            ret_x0 = False
         else:
             raise ValueError('Invalid prediction type')
         
@@ -599,7 +599,7 @@ class Trainer:
 
             # Condition VAE on target
             cond = target
-            #cond = x_0
+            # cond = x_0
             model_pred = self.model(x_t, t, cond, t2=t2) # VAE Model needs conditioning signal for prediction
 
             # Testing to include VAE Noise into Loss, just as in Risannen. 
@@ -607,7 +607,7 @@ class Trainer:
             # x_t = x_t + self.model.vae_noise 
 
             # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
-            if self.prediction == 'xt':
+            if self.prediction in ['xt', 'vxt']: # Check if that really helps for vxt
                 pred = (x_t + model_pred)
             else:
                 pred = model_pred
@@ -622,7 +622,7 @@ class Trainer:
             model_pred = self.model(x_t, t, t2=t2) # Model prediction without VAE
 
             # Risannen Loss Formulation - Here the slightly perturbed x_t is used for the prediction
-            if self.prediction == 'xt':
+            if self.prediction in ['xt', 'vxt']: # Check if that really helps for vxt
                 pred = (x_t + model_pred)
             else:
                 pred = model_pred
@@ -660,7 +660,8 @@ class Trainer:
             # Sample t
             t = torch.randint(0, self.timesteps, (x_0.shape[0],), dtype=torch.long, device=self.device) # Randomly sample time steps
 
-            if self.var_timestep:
+            # Sample t2 for variable xt prediction
+            if self.prediction == 'vxt':
                 t2 = []
                 # Select a second timestep that's between 0 and t. Note that t contains a different value for each image in the batch
                 for t_ in t:
@@ -718,7 +719,6 @@ class Sampler:
         self.vae = kwargs['vae']
         self.noise_scale = kwargs['noise_scale']
         self.xt_weighting = kwargs['xt_weighting']
-        self.var_timestep = kwargs['var_timestep']
         
 
     def fit_gmm(self, dataloader, clusters = 1, sample = False):
@@ -865,34 +865,28 @@ class Sampler:
         sampling_noise = None
         samples = []
         samples.append(xT) 
+        steps = t_diff if t_diff > 0 else 1
 
-        for t in tqdm(reversed(range(self.timesteps)), desc=f"Cold Sampling"):
+        if t_diff != 1:
+            assert self.prediction == 'vxt', "Skipping sampling steps only works for Variable Timestep Diffusion"
+
+        for t in tqdm(reversed(range(0, self.timesteps, steps)), desc=f"Cold Sampling"):
             t_tensor = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
             
-            if self.var_timestep:
-                t2 = torch.full((batch_size,), t-t_diff, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
-    
+            # Sample t2 for variable xt prediction
+            if self.prediction == 'vxt':
+                if t_diff == -1: # Equals to x0 prediction
+                    t2 = torch.full((batch_size,), -1, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
+                elif t_diff > 0: # Equals to xt prediction of variable timestep
+                    t2 = torch.full((batch_size,), t-t_diff, dtype=torch.long).to(self.device)
+
             if self.vae:
-                if generate:
-                    if t_inject is not None: # T_Inject aims to assess the effect of manipulated injections at different timestep
-                        pred = model(xt, t_tensor, cond=None, prior=prior if t == t_inject else None, t2=t2)
-                    else: # If no t_inject is provided, we always use the provided prior
-                        pred = model(xt, t_tensor, cond=None, prior=prior, t2=t2)
-                else:
-                    # Reconstruction with encoded latent from x0 ground truth
-                    if self.prediction == 'x0':
-                        cond = x0 
-                    elif self.prediction == 'xt':
-                        cond = self.degradation.degrade(x0, t_tensor-1)
-
-                    pred = model(xt, t_tensor, cond, t2=t2)
-
+                pred = model(xt, t_tensor, cond=None, prior=prior, t2=t2)
             else:
-
                 pred = model(xt, t_tensor, t2=t2)
 
             # BANSAL ALGORITHM 2
-            if self.prediction == 'x0':
+            if self.prediction == 'x0' or (self.prediction == 'vxt' and t_diff == -1):
                 
                 # Remove sampling noise from x0 sampling, AFTER it was used for prediction
                 if sampling_noise is not None:
@@ -907,13 +901,8 @@ class Sampler:
                     direct_recons = x0_hat
     
 
-            # OURS with xt prediction
-            elif self.prediction == 'xt':
-
-                # DO NOT USE ANYMORE - VAE NOISE IS ALREADY ADDED INTERNALLY
-                # DO STILL USE BECAUSE THIS MIGHT BE WHAT'S NEEDED TO MAKE VAE x0 PREDICTIONS WORK - Noise has to be accounted for during sampling
-                # if self.vae:    
-                #     xt = xt + model.vae_noise # VAE Noise injection
+            # OURS with xt prediction (includes variable timestep prediction)
+            elif self.prediction == 'xt' or (self.prediction == 'vxt' and t_diff != -1):
 
                 xtm1 = (xt + pred) if self.add_noise or self.vae else pred # According to Risannen, the model predicts the residual, which stabilizes the training
 
@@ -1035,7 +1024,7 @@ class Sampler:
 
 
 
-    def sample(self, model, batch_size, x0=None, prior=None, generate=False, t_inject=None):
+    def sample(self, model, batch_size, x0=None, prior=None, generate=False, t_inject=None, t_diff=1):
         
         if self.deterministic:
             return self.sample_cold(model, 
@@ -1043,7 +1032,8 @@ class Sampler:
                                     x0, 
                                     generate=generate, 
                                     prior=prior, 
-                                    t_inject=t_inject)
+                                    t_inject=t_inject,
+                                    t_diff=t_diff)
         else:
             return self.sample_ddpm(model, batch_size)
         

@@ -25,6 +25,9 @@ from scripts.risannen_unet_vae import VAEUnet
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
 from utils import create_dirs, save_video, save_gif, MyCelebA
 
+import torch.multiprocessing as mp
+mp.set_start_method('spawn', force=True)
+
 # Check if ipykernel is running to check if we're working locally or on the cluster
 import sys
 if 'ipykernel' in sys.modules:
@@ -284,6 +287,7 @@ t = torch.ones((kwargs['n_samples'],), dtype=torch.long).to(kwargs['device']) * 
 t2 = torch.ones((kwargs['n_samples'],), dtype=torch.long).to(kwargs['device'])
 for i, j in enumerate(reversed(range(kwargs['n_samples']))):
     t2[j] = i
+diff = 10
 
 trainer.model.eval()
 xT = sampler.x_T
@@ -291,7 +295,7 @@ xt = xT
 
 sampling_noise = None
 
-pred = trainer.model(xt, t, xtm1=None, timesteps2=t2)
+pred = trainer.model(xt, t, cond=None, t2=t2)
 
 # OURS with xt prediction
 xtm1 = (xt + pred) if kwargs['add_noise'] or kwargs['vae'] else pred # According to Risannen, the model predicts the residual, which stabilizes the training
@@ -333,7 +337,7 @@ for t in tqdm(reversed(range(0, kwargs['timesteps']+1, diff)), desc=f"Cold Sampl
 
     print(t2)
 
-    pred = trainer.model(xt, t_tensor, xtm1=None, timesteps2=t2)
+    pred = trainer.model(xt, t_tensor, cond=None, t2=t2)
     pred = pred.detach()
 
     # OURS with xt prediction

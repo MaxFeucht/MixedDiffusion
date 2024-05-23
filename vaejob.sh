@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=ma_vart_emb
+#SBATCH --job-name=vm_.5_10
 #SBATCH --time=12:00:00
 #SBATCH -N 1
 #SBATCH --ntasks-per-node=1
@@ -45,21 +45,21 @@ cd /var/scratch/mft520/experiments
 
 lr=1e-4
 batch_size=64
-timesteps=50
+timesteps=10
 dim=128
 epochs=1000
-prediction="xtm1"
+prediction="xt"
 degradation="fadeblack_blur"
 noise_schedule="cosine"
 dataset="mnist"
-sample_interval=2
+sample_interval=1
 n_samples=72
 model_ema_decay=0.997
 vae_alpha=0.999
 noise_scale=0.01
-latent_dim=10
-vae_inject="emb"
-xt_dropout=0.2
+latent_dim=4
+vae_inject="start"
+xt_dropout=0.5
 
 
 # Run the actual experiment. 
@@ -68,5 +68,5 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --model_ema_decay $model_ema_decay --noise_scale $noise_scale \
                                                 --latent_dim $latent_dim --vae_alpha $vae_alpha --vae_inject $vae_inject --xt_dropout $xt_dropout \
-                                                --cluster --vae --var_timestep #--load_checkpoint
+                                                --cluster --vae #--load_checkpoint
 echo "Script finished"
