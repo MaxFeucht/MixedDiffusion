@@ -349,14 +349,14 @@ def main(**kwargs):
                 _, xt, direct_recons, all_images = sampler.sample(model=trainer.model, 
                                                                         generate=True, 
                                                                         batch_size = kwargs['n_samples'],
-                                                                        t_diff=kwargs['var_sampling'])
+                                                                        t_diff=kwargs['var_sampling_step'])
 
                 # Prior is defined above under "fix_sample"
                 gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model, 
                                                                         batch_size = kwargs['n_samples'], 
                                                                         generate=True, 
                                                                         prior=prior,
-                                                                        t_diff=kwargs['var_sampling'])
+                                                                        t_diff=kwargs['var_sampling_step'])
                 
                 # Training Process conditional generation
                 #save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
@@ -404,7 +404,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', '--e', type=int, default=20, help='Number of Training Epochs')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--xt_weighting', action='store_true', help='Whether to use weighting for xt in loss')
-    parser.add_argument('--var_sampling', type=int, default = -1, help='How to sample var timestep model - int > 0 indicates t difference to predict, -1 indicates x0 prediction')
+    parser.add_argument('--var_sampling_step', type=int, default = -1, help='How to sample var timestep model - int > 0 indicates t difference to predict, -1 indicates x0 prediction')
     parser.add_argument('--baseline', '--base', type=str, default='xxx', help='Whether to run a baseline model - Risannen, Bansal, VAE')
 
     # Noise Injection Parameters
