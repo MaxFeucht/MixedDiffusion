@@ -19,7 +19,7 @@ class UniformDequantize(object):
 
 
 def get_dataset(config, uniform_dequantization=False, train_batch_size=None,
-                eval_batch_size=None, num_workers=8):
+                eval_batch_size=None, num_workers=1):
     """
     Get Pytorch dataloaders for one of the following datasets:
     MNIST, CIFAR-10, LSUN-Church, FFHQ, AFHQ
@@ -80,9 +80,9 @@ def get_dataset(config, uniform_dequantization=False, train_batch_size=None,
 
     # If we didn't use the load_data function that already created data loaders:
     trainloader = DataLoader(training_data, batch_size=train_batch_size,
-                             shuffle=True, num_workers=4, pin_memory=True)
+                             shuffle=True, num_workers=num_workers, pin_memory=True)
     testloader = DataLoader(test_data, batch_size=eval_batch_size,
-                            shuffle=True, num_workers=4, pin_memory=True)
+                            shuffle=True, num_workers=num_workers, pin_memory=True)
 
     return trainloader, testloader
 
@@ -93,7 +93,7 @@ def get_dataset(config, uniform_dequantization=False, train_batch_size=None,
 
 def load_data(
         *, data_dir, batch_size, image_size, class_cond=False, deterministic=False,
-        random_flip=True
+        random_flip=True, num_workers=1
 ):
     """
     NOTE: Change to original function, returns the Pytorch dataloader, not a generator
@@ -129,11 +129,11 @@ def load_data(
     )
     if deterministic:
         loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=False, num_workers=4, drop_last=True
+            dataset, batch_size=batch_size, shuffle=False, num_workers=num_workers, drop_last=True
         )
     else:
         loader = DataLoader(
-            dataset, batch_size=batch_size, shuffle=True, num_workers=4, drop_last=True
+            dataset, batch_size=batch_size, shuffle=True, num_workers=num_workers, drop_last=True
         )
     return loader
 

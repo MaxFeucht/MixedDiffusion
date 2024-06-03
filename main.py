@@ -16,8 +16,6 @@ from torchvision import datasets
 from torchvision import transforms as T
 from torchvision.utils import save_image
 
-from scripts.datasets import load_data
-
 from unet import UNet
 from mnist_unet import MNISTUnet
 from scripts.bansal_unet import BansalUnet
@@ -26,7 +24,7 @@ from scripts.risannen_unet_vae import VAEUnet
 #from scripts.vae_unet_full import VAEUnet
 
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
-from utils import create_dirs, save_video, save_gif, MyCelebA
+from utils import load_dataset, plot_degradation, create_dirs, save_video, save_gif, MyCelebA
 
 import torch.multiprocessing as mp
 mp.set_start_method('spawn', force=True)
@@ -35,149 +33,6 @@ mp.set_start_method('spawn', force=True)
 import sys
 if 'ipykernel' in sys.modules:
     sys.argv = ['']
-
-
-def load_dataset(batch_size = 32, dataset = 'mnist'):
-    
-    assert dataset in ['mnist', 'cifar10', 'celeba', 'lsun_churches', 'afhq'],f"Invalid dataset, choose from ['mnist', 'cifar10', 'celeba', 'lsun_churches', 'afhq']"
-
-    # Check if directory exists
-    if not os.path.exists(f'./data/{dataset.split("_")[0].upper()}'):
-        os.makedirs(f'./data/{dataset.split("_")[0].upper()}')
-
-    
-    if dataset == 'mnist':
-
-        training_data = datasets.MNIST(root='./data/MNIST', 
-                                    train=True, 
-                                    download=True, 
-                                    transform=T.Compose([T.ToTensor()]))
-        val_data = datasets.MNIST(root='./data/MNIST', 
-                                    train=False, 
-                                    download=True, 
-                                    transform=T.Compose([T.ToTensor()]))
-    
-    elif dataset == 'cifar10':
-
-        training_data = datasets.CIFAR10(root='./data/CIFAR10', 
-                                    train=True, 
-                                    download=True, 
-                                    transform=T.Compose([T.ToTensor()]))
-        val_data = datasets.CIFAR10(root='./data/CIFAR10', 
-                                    train=False, 
-                                    download=True, 
-                                    transform=T.Compose([T.ToTensor()]))
-    
-    elif dataset == 'celeba':
-        
-        train_transformation = T.Compose([
-            T.Resize((64, 64)),
-            T.ToTensor()])
-        
-        scriptdir = os.path.dirname(__file__)
-        datadir = os.path.join(scriptdir,'data')
-
-        # Adapt path to data directory for DAS-6
-        if 'scratch' in datadir:
-            datadir = datadir.replace('MixedDiffusion/', '')
-
-        print("Data Directory: ", datadir)
-
-        training_data = MyCelebA(
-            datadir,
-            split='train',
-            transform=train_transformation,
-            download=False,
-        )
-        
-        # Replace CelebA with your dataset
-        val_data = MyCelebA(
-            datadir,
-            split='test',
-            transform=train_transformation,
-            download=False,
-        )
-    
-
-    elif dataset == 'lsun_churches':
-        scriptdir = os.path.dirname(__file__)
-        datadir = os.path.join(scriptdir,'data/LSUN_CHURCHES')
-        training_data = datasets.LSUN(root=datadir,
-                                    classes=['church_outdoor_train'], 
-                                    transform=T.Compose([T.ToTensor()]))
-        val_data = datasets.LSUN(root=datadir,
-                                    classes=['church_outdoor_val'], 
-                                    transform=T.Compose([T.ToTensor()]))
-    
-    elif dataset == 'afhq':
-        train_loader = load_data(data_dir="./data/AFHQ_64/train",
-                                batch_size=batch_size, image_size=64,
-                                random_flip=False)
-        val_loader = load_data(data_dir="./data/AFHQ_64/test",
-                               batch_size=batch_size, image_size=64,
-                               random_flip=False)
-        
-        return train_loader, val_loader
-
-
-    # Set up data loaders
-    train_loader = torch.utils.data.DataLoader(training_data, batch_size=batch_size, shuffle=True)
-    val_loader = torch.utils.data.DataLoader(val_data, batch_size=batch_size, shuffle=True)
-
-    return train_loader, val_loader
-
-
-def plot_degradation(timesteps, train_loader, **kwargs):
-
-    kwargs.pop('degradation')
-    noise = Degradation(timesteps = timesteps, degradation = 'noise', **kwargs)
-    blur = Degradation(timesteps = timesteps, degradation = 'blur', **kwargs)
-    black = Degradation(timesteps = timesteps, degradation = 'fadeblack', **kwargs)
-    black_blur = Degradation(timesteps = timesteps, degradation = 'fadeblack_blur', **kwargs)
-
-    timesteps = min(50, timesteps)
-
-    plt.figure(figsize=(16, 5))
-    for i in range(timesteps):
-
-        ind = i
-        x, y = next(iter(train_loader)) 
-        t = torch.tensor([i]).repeat(x.shape[0],).to('mps')
-        x = x.to('mps')
-
-        plt.subplot(5, timesteps, 0*timesteps+ind+1)
-        x_plain = x[0].unsqueeze(0) if len(x[0].shape) == 2 else x
-        plt.imshow(x_plain[0].cpu().permute(1, 2, 0))
-        plt.axis('off')
-
-        plt.subplot(5, timesteps, 1*timesteps+ind+1)
-        x_noise = noise.degrade(x, t).cpu()
-        x_noise = x_noise[0].unsqueeze(0) if len(x_noise[0].shape) == 2 else x_noise[0]
-        plt.imshow(x_noise.permute(1, 2, 0), vmin=0, vmax=1)   
-        plt.axis('off')
-    
-        plt.subplot(5, timesteps, 2*timesteps+ind+1)
-        x_blur = blur.degrade(x, t).cpu()
-        x_blur = x_blur[0].unsqueeze(0) if len(x_blur[0].shape) == 2 else x_blur[0]
-        plt.imshow(x_blur.permute(1, 2, 0), vmin=0, vmax=1)
-        plt.axis('off')
-        
-        plt.subplot(5, timesteps, 3*timesteps+ind+1)
-        x_black = black.degrade(x, t).cpu()
-        x_black = x_black[0].unsqueeze(0) if len(x_black[0].shape) == 2 else x_black[0]
-        plt.imshow(x_black.permute(1, 2, 0), vmin=0, vmax=1)   
-        plt.axis('off')
-    
-        plt.subplot(5, timesteps, 4*timesteps+ind+1)
-        x_blackblur = black_blur.degrade(x, t).cpu()
-        x_blackblur = x_blackblur[0].unsqueeze(0) if len(x_blackblur[0].shape) == 2 else x_blackblur[0]
-        plt.imshow(x_blackblur.permute(1, 2, 0), vmin=0, vmax=1)   
-        plt.axis('off')
-        
-
-    # axis off
-    plt.suptitle('Image degradation', size = 18)
-
 
 
 def main(**kwargs):
@@ -191,7 +46,7 @@ def main(**kwargs):
     channels = x[0].shape[0]
 
     # Model Configuration
-    if kwargs['dataset'] == 'mnist':
+    if 'mnist' in kwargs['dataset']:
         attention_levels = (2,)
         ch_mult = (1,2,2)
         num_res_blocks = 2
@@ -314,14 +169,14 @@ def main(**kwargs):
         trainer.model.train()
         if kwargs['vae']:
             trainloss, reconstruction, kl_div = trainer.train_epoch(trainloader, val=False) # ATTENTION: CURRENTLY NO VALIDATION LOSS
-            if not kwargs['test_run']:
+            if not kwargs['skip_wandb']:
                 wandb.log({"train loss": trainloss,
                         "reconstruction loss": reconstruction,
                             "kl divergence": kl_div}, step = e)
             print(f"Epoch {e} Train Loss: {trainloss}, \nReconstruction Loss: {reconstruction}, \nKL Divergence: {kl_div}")
         else:
             trainloss = trainer.train_epoch(trainloader, val=False)
-            if not kwargs['test_run']:
+            if not kwargs['skip_wandb']:
                 wandb.log({"train loss": trainloss}, step=e)
             print(f"Epoch {e} Train Loss: {trainloss}")
 
@@ -344,19 +199,21 @@ def main(**kwargs):
                 save_image(samples[-1], os.path.join(imgpath, f'sample_{e}.png'), nrow=nrow) #int(math.sqrt(kwargs['n_samples']))
                 save_video(samples, imgpath, nrow, f'sample_{e}.mp4')
             
-            else: # Cold Sampling
-                og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
+            else: 
+                # Cold Sampling
+                #og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
+                t_diff = kwargs['var_sampling_step'] if e % 2 != 0 else -1
                 _, xt, direct_recons, all_images = sampler.sample(model=trainer.model, 
                                                                         generate=True, 
                                                                         batch_size = kwargs['n_samples'],
-                                                                        t_diff=kwargs['var_sampling_step'])
+                                                                        t_diff=t_diff if kwargs['prediction'] == 'vxt' else 1) # Sample xt-1 style every second epoch
 
                 # Prior is defined above under "fix_sample"
-                gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model, 
+                gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model,
+                                                                        generate=True,
                                                                         batch_size = kwargs['n_samples'], 
-                                                                        generate=True, 
                                                                         prior=prior,
-                                                                        t_diff=kwargs['var_sampling_step'])
+                                                                        t_diff=t_diff if kwargs['prediction'] == 'vxt' else 1) # Sample xt-1 style every second epoch
                 
                 # Training Process conditional generation
                 #save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
@@ -397,18 +254,19 @@ if __name__ == "__main__":
     parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='vxt', help='Prediction method, choose one of [x0, xt, residual]')
     parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
-    parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
+    parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur_bansal', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
     parser.add_argument('--dim', '--d', type=int , default=32, help='Model dimension')
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=20, help='Number of Training Epochs')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
-    parser.add_argument('--xt_weighting', action='store_true', help='Whether to use weighting for xt in loss')
-    parser.add_argument('--var_sampling_step', type=int, default = -1, help='How to sample var timestep model - int > 0 indicates t difference to predict, -1 indicates x0 prediction')
+    parser.add_argument('--loss_weighting', action='store_true', help='Whether to use weighting for reconstruction loss')
+    parser.add_argument('--var_sampling_step', type=int, default = 1, help='How to sample var timestep model - int > 0 indicates t difference to predict, -1 indicates x0 prediction')
+    parser.add_argument('--min_t2_step', type=int, default=1, help='With what min step size to discretize t2 in variational timestep model') 
     parser.add_argument('--baseline', '--base', type=str, default='xxx', help='Whether to run a baseline model - Risannen, Bansal, VAE')
 
     # Noise Injection Parameters
-    parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
+    parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
     parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
     parser.add_argument('--latent_dim', type=int, default=32, help='Which dimension the VAE latent space is supposed to have')
     parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
@@ -416,7 +274,7 @@ if __name__ == "__main__":
     parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
     parser.add_argument('--vae_loc', type=str, default = 'start', help='Where to inject VAE Noise. One of [start, bottleneck, emb].')
     parser.add_argument('--vae_inject', type=str, default = 'add', help='How to inject VAE Noise. One of [concat, add].')
-    parser.add_argument('--xt_dropout', type=float, default = 0.3, help='How much of xt is dropped out at every step (to foster reliance on VAE injections)')
+    parser.add_argument('--xt_dropout', type=float, default = 0.2, help='How much of xt is dropped out at every step (to foster reliance on VAE injections)')
 
     # Housekeeping Parameters
     parser.add_argument('--load_checkpoint', action='store_true', help='Whether to try to load a checkpoint')
@@ -426,16 +284,17 @@ if __name__ == "__main__":
     parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
     parser.add_argument('--model_ema_decay', type=float, default=0.997, help='Model EMA decay')
     parser.add_argument('--cluster', action='store_true', help='Whether to run script locally')
+    parser.add_argument('--skip_wandb', action='store_true', help='Whether to skip wandb logging')
     parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
 
-    parser.add_argument('--test_run', action='store_false', help='Whether to test run the pipeline')
+    parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
 
     args = parser.parse_args()
 
     args.num_downsamples = 2 if args.dataset == 'mnist' else 3
     args.device = 'cuda' if torch.cuda.is_available() else 'mps'
 
-    if args.dataset == 'mnist':
+    if 'mnist' in args.dataset:
         args.image_size = 28
     elif args.dataset == 'cifar10':
         args.image_size = 32
@@ -492,7 +351,7 @@ if __name__ == "__main__":
         args.prediction = 'x0'
 
     # Initialize wandb
-    if not args.test_run:
+    if not args.skip_wandb:
         wandb.init(
         project="Diffusion Thesis",
         config=vars(args))
@@ -501,7 +360,6 @@ if __name__ == "__main__":
 
 
     # Run main function
-
     main(**vars(args))
 
     # Finish wandb run

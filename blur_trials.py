@@ -1,93 +1,98 @@
-import os 
-import cv2
-import torch
-import matplotlib.pyplot as plt
-from PIL import Image
+import argparse
 import numpy as np
-from torchvision.utils import make_grid, save_image
-from torchvision import datasets
-from torchvision.datasets import CelebA
-from torchvision import transforms as T
+import os
+import sys
+import time
+import math
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+import warnings
+import wandb
 
-from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
+import torch
+import torch.nn as nn
+import torchvision
+from torchvision import datasets
+from torchvision import transforms as T
+from torchvision.utils import save_image
+
 from scripts.datasets import load_data
 
+from unet import UNet
+from mnist_unet import MNISTUnet
+from scripts.bansal_unet import BansalUnet
+from scripts.risannen_unet import RisannenUnet
+from scripts.risannen_unet_vae import VAEUnet
+#from scripts.vae_unet_full import VAEUnet
 
-def create_dirs(**kwargs):
+from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
+from utils import create_dirs, save_video, save_gif, MyCelebA
 
-    vae_flag = "_vae" if kwargs["vae"] else ""
-    noise_flag = "_noise" if kwargs["add_noise"] else ""
-    vae_inject_flag = "_" + kwargs["vae_inject"] if kwargs["vae"] else ""
+import torch.multiprocessing as mp
+mp.set_start_method('spawn', force=True)
 
-    # Check if directory for imgs exists
-    imgpath = f'./imgs/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}{noise_flag}'
-    if not os.path.exists(imgpath):
-        os.makedirs(imgpath)
-    dirs = os.listdir(imgpath)
-    run_counts = [int(d.split("_")[1]) for d in dirs if d.startswith("run")]
-    run_counts.sort()
-    run_count = run_counts[-1] if run_counts else 0
-
-    imgpath += f'/run_{run_count+1}_{kwargs["prediction"]}_{kwargs["timesteps"]}{vae_inject_flag}'
-    os.makedirs(imgpath)
-        
-    modelpath = f'./models/{kwargs["dataset"]}_{kwargs["degradation"]}{vae_flag}'
-    if not os.path.exists(modelpath):
-        os.makedirs(modelpath)
-
-    return imgpath, modelpath
+# Check if ipykernel is running to check if we're working locally or on the cluster
+import sys
+if 'ipykernel' in sys.modules:
+    sys.argv = ['']
 
 
-def save_video(samples, save_dir, nrow, name="process.mp4"):
-    """ Saves a video from Pytorch tensor 'samples'. 
-    Arguments:
-    samples: Tensor of shape: (video_length, n_channels, height, width)
-    save_dir: Directory where to save the video"""
+parser = argparse.ArgumentParser(description='Diffusion Models')
 
-    padding = 0
-    imgs = []
+# General Diffusion Parameters
+parser.add_argument('--timesteps', '--t', type=int, default=100, help='Degradation timesteps')
+parser.add_argument('--prediction', '--pred', type=str, default='vxt', help='Prediction method, choose one of [x0, xt, residual]')
+parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
+parser.add_argument('--batch_size', '--b', type=int, default=5, help='Batch size')
+parser.add_argument('--dim', '--d', type=int , default=32, help='Model dimension')
+parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
+parser.add_argument('--epochs', '--e', type=int, default=20, help='Number of Training Epochs')
+parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
+parser.add_argument('--xt_weighting', action='store_true', help='Whether to use weighting for xt in loss')
+parser.add_argument('--var_sampling_step', type=int, default = 1, help='How to sample var timestep model - int > 0 indicates t difference to predict, -1 indicates x0 prediction')
+parser.add_argument('--baseline', '--base', type=str, default='xxx', help='Whether to run a baseline model - Risannen, Bansal, VAE')
 
-    for idx in range(len(samples)):
-        sample = samples[idx].cpu().detach().numpy()
-        sample = np.clip(sample * 255, 0, 255)
-        image_grid = make_grid(torch.Tensor(sample), nrow, padding=padding).numpy(
-        ).transpose(1, 2, 0).astype(np.uint8)
-        image_grid = cv2.cvtColor(image_grid, cv2.COLOR_RGB2BGR)
-        imgs.append(image_grid)
+# Noise Injection Parameters
+parser.add_argument('--vae', action='store_false', help='Whether to use VAE Noise injections')
+parser.add_argument('--vae_alpha', type=float, default = 0.999, help='Trade-off parameter for weight of Reconstruction and KL Div')
+parser.add_argument('--latent_dim', type=int, default=32, help='Which dimension the VAE latent space is supposed to have')
+parser.add_argument('--add_noise', action='store_true', help='Whether to add noise Risannen et al. style')
+parser.add_argument('--break_symmetry', action='store_true', help='Whether to add noise to xT Bansal et al. style')
+parser.add_argument('--noise_scale', type=float, default = 0.01, help='How much Noise to add to the input')
+parser.add_argument('--vae_loc', type=str, default = 'start', help='Where to inject VAE Noise. One of [start, bottleneck, emb].')
+parser.add_argument('--vae_inject', type=str, default = 'add', help='How to inject VAE Noise. One of [concat, add].')
+parser.add_argument('--xt_dropout', type=float, default = 0.3, help='How much of xt is dropped out at every step (to foster reliance on VAE injections)')
 
-    video_size = tuple(reversed(tuple(s for s in imgs[0].shape[:2])))
-    writer = cv2.VideoWriter(os.path.join(save_dir,name), cv2.VideoWriter_fourcc(*'mp4v'),
-                             30, video_size)
-    
-    for i in range(len(imgs)):
-        image = cv2.resize(imgs[i], video_size, fx=0,
-                           fy=0, interpolation=cv2.INTER_CUBIC)
-        writer.write(image)
-    writer.release()
+# Housekeeping Parameters
+parser.add_argument('--load_checkpoint', action='store_false', help='Whether to try to load a checkpoint')
+parser.add_argument('--sample_interval', type=int, help='After how many epochs to sample', default=1)
+parser.add_argument('--n_samples', type=int, default=60, help='Number of samples to generate')
+parser.add_argument('--fix_sample', action='store_false', help='Whether to fix x_T for sampling, to see sample progression')
+parser.add_argument('--skip_ema', action='store_true', help='Whether to skip model EMA')
+parser.add_argument('--model_ema_decay', type=float, default=0.997, help='Model EMA decay')
+parser.add_argument('--cluster', action='store_true', help='Whether to run script locally')
+parser.add_argument('--verbose', '--v', action='store_true', help='Verbose mode')
 
+parser.add_argument('--test_run', action='store_true', help='Whether to test run the pipeline')
 
-def save_gif(samples, save_dir, nrow, name="process.gif"):
-    """ Saves a gif from Pytorch tensor 'samples'. Arguments:
-    samples: Tensor of shape: (video_length, n_channels, height, width)
-    save_dir: Directory where to save the gif"""
+args = parser.parse_args()
 
-    imgs = []
+args.num_downsamples = 2 if args.dataset == 'mnist' else 3
+args.device = 'cuda' if torch.cuda.is_available() else 'mps'
 
-    for idx in range(len(samples)):
-        s = samples[idx].cpu().detach().numpy()
-        s = np.clip(s * 255, 0, 255).astype(np.uint8)
-        image_grid = make_grid(torch.Tensor(s), nrow, padding=0)
-        im = Image.fromarray(image_grid.permute(
-            1, 2, 0).to('cpu', torch.uint8).numpy())
-        imgs.append(im)
+if args.dataset == 'mnist':
+    args.image_size = 28
+elif args.dataset == 'cifar10':
+    args.image_size = 32
+elif args.dataset == 'afhq':
+    args.image_size = 64
 
-    imgs[0].save(os.path.join(save_dir,name), save_all=True,
-                 append_images=imgs[1:], duration=0.5, loop=0)
-    
+kwargs = vars(args)
 
 def load_dataset(batch_size = 32, dataset = 'mnist'):
     
-    assert dataset in ['mnist', 'fashionmnist', 'cifar10', 'celeba', 'lsun_churches', 'afhq'],f"Invalid dataset, choose from ['mnist', 'fashionmnist', 'cifar10', 'celeba', 'lsun_churches', 'afhq']"
+    assert dataset in ['mnist', 'cifar10', 'celeba', 'lsun_churches', 'afhq'],f"Invalid dataset, choose from ['mnist', 'cifar10', 'celeba', 'lsun_churches', 'afhq']"
 
     # Check if directory exists
     if not os.path.exists(f'./data/{dataset.split("_")[0].upper()}'):
@@ -101,17 +106,6 @@ def load_dataset(batch_size = 32, dataset = 'mnist'):
                                     download=True, 
                                     transform=T.Compose([T.ToTensor()]))
         val_data = datasets.MNIST(root='./data/MNIST', 
-                                    train=False, 
-                                    download=True, 
-                                    transform=T.Compose([T.ToTensor()]))
-        
-    elif dataset == 'fashionmnist':
-            
-        training_data = datasets.FashionMNIST(root='./data/FashionMNIST', 
-                                    train=True, 
-                                    download=True, 
-                                    transform=T.Compose([T.ToTensor()]))
-        val_data = datasets.FashionMNIST(root='./data/FashionMNIST', 
                                     train=False, 
                                     download=True, 
                                     transform=T.Compose([T.ToTensor()]))
@@ -171,10 +165,10 @@ def load_dataset(batch_size = 32, dataset = 'mnist'):
     elif dataset == 'afhq':
         train_loader = load_data(data_dir="./data/AFHQ_64/train",
                                 batch_size=batch_size, image_size=64,
-                                random_flip=False, num_workers=4)
+                                random_flip=False, num_workers=0)
         val_loader = load_data(data_dir="./data/AFHQ_64/test",
                                batch_size=batch_size, image_size=64,
-                               random_flip=False, num_workers=4)
+                               random_flip=False, num_workers=0)
         
         return train_loader, val_loader
 
@@ -253,16 +247,10 @@ def plot_degradation(train_loader, **kwargs):
     plt.suptitle('Image degradation', size = 18)
 
 
-class MyCelebA(CelebA):
-    """
-    A work-around to address issues with pytorch's celebA dataset class.
-    
-    Download and Extract
-    URL : https://drive.google.com/file/d/1m8-EBPgi5MRubrm6iQjafK2QMHDBMSfJ/view?usp=sharing
-    """
+trainloader, valloader = load_dataset(kwargs['batch_size'], kwargs['dataset'])
+plot_degradation(trainloader, **kwargs)
 
-    def _check_integrity(self) -> bool:
-        return True
-    
+
+
 
 

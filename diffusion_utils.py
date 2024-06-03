@@ -6,7 +6,6 @@ from sklearn.mixture import GaussianMixture
 
 import math
 from tqdm import tqdm
-from utils import save_image
 import os
 
 import dct_blur as torch_dct
@@ -75,7 +74,7 @@ class Scheduler:
             raise ValueError('Invalid schedule type')
 
     
-    def get_bansal_blur_schedule(self, timesteps, std, type = 'constant'):
+    def get_bansal_blur_schedule(self, timesteps, std = 0.01, type = 'exponential'):
         
         # 0.01 * t + 0.35 CIFAR-10
         
@@ -137,7 +136,7 @@ class Degradation:
         self.device = kwargs['device']
         scheduler = Scheduler(device = self.device)
         
-        assert degradation in ['noise', 'blur', 'fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal', 'fadeblack_noise'], 'Invalid degradation type, choose from noise, blur, fadeblack, fadeblack_blur, fadeblack_noise'
+        assert degradation in ['noise', 'blur', 'blur_bansal', 'fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal', 'fadeblack_noise'], 'Invalid degradation type, choose from noise, blur, blur_bansal, fadeblack, fadeblack_blur, fadeblack_noise'
         self.degradation = degradation
                 
         # Denoising
@@ -148,15 +147,15 @@ class Degradation:
 
 
         # Blurring
-        blur_kwargs = {'channels': 1 if dataset == 'mnist' else 3, 
-                        'kernel_size': 5 if dataset == 'mnist' else 11, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
-                        'kernel_std': 2 if dataset == 'mnist' else 7, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
+        blur_kwargs = {'channels': 1 if 'mnist' in dataset else 3, 
+                        'kernel_size': 5 if 'mnist' in dataset else 27, # Change to 11 for non-cold start but for conditional sampling (only blurring for 40 steps)
+                        'kernel_std': 2 if 'mnist' in dataset else 0.01, # if dataset == 'mnist' else 0.001, # Std has a different interpretation for constant schedule and exponential schedule: constant schedule is the actual std, exponential schedule is the rate of increase # 7 if dataset == 'mnist' else 0.01
                         'timesteps': timesteps, 
-                        'blur_routine': 'cifar' if dataset == 'cifar10' else 'constant' if dataset == 'mnist' else 'exponential',
-                        'mode': 'circular' if dataset == 'mnist' else 'reflect',
+                        'blur_routine': 'cifar' if dataset == 'cifar10' else 'constant' if 'mnist' in dataset else 'exponential',
+                        'mode': 'circular' if 'mnist' in dataset else 'reflect',
                         'dataset': dataset,
                         'image_size': kwargs['image_size'], 
-                        'device': self.device} # if dataset == 'mnist' else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
+                        'device': self.device} # if 'mnist' in dataset else 'exponential'} # 'constant' if dataset == 'mnist' else 'exponential'}
             
         self.blur = Blurring(**blur_kwargs)
         
@@ -526,7 +525,8 @@ class Trainer:
         self.vae_alpha = vae_alpha
         self.noise_scale = kwargs['noise_scale']
         self.add_noise = kwargs['add_noise']
-        self.xt_weighting = kwargs['xt_weighting']
+        self.loss_weighting = kwargs['loss_weighting']
+        self.min_t2_step = kwargs['min_t2_step']
 
         general_kwargs = {'timesteps': timesteps, 
                           'prediction': prediction,
@@ -584,10 +584,6 @@ class Trainer:
         elif self.prediction == 'xt':
             target = x_tm
             ret_x0 = False
-            if self.xt_weighting:
-                weight = self.degradation.blacking_coefs[t-1].reshape(-1, 1, 1, 1)
-                weight[t == 0] = 1.0
-                target = target / weight # Weighting of the target image according to the time step - the higher the time step, the more the target image is upweighted
         elif self.prediction == 'vxt':
             target = vxt
             ret_x0 = False
@@ -613,6 +609,16 @@ class Trainer:
                 pred = model_pred
 
             reconstruction = self.loss.mse_loss(target, pred)
+
+            if self.loss_weighting:
+                if t2 is not None:
+                    weight = self.degradation.blacking_coefs[t2].reshape(-1, 1, 1, 1)
+                else:
+                    weight = self.degradation.blacking_coefs[t-1].reshape(-1, 1, 1, 1)
+                weight[t2 == -1] = 1.0
+                weight = weight.mean().item()
+                reconstruction = reconstruction / weight # Weighting of the reconstruction loss image according to the time step - the higher the time step, the more the loss is upweighted
+
             kl_div = self.model.kl_div
             loss = 2 * (self.vae_alpha * reconstruction + (1-self.vae_alpha) * kl_div) #* self.noise_scale)
             return loss, reconstruction, kl_div
@@ -663,13 +669,12 @@ class Trainer:
             # Sample t2 for variable xt prediction
             if self.prediction == 'vxt':
                 t2 = []
-                # Select a second timestep that's between 0 and t. Note that t contains a different value for each image in the batch
-                for t_ in t:
-                    if t_ == 0:
-                        t2.append(torch.tensor([-1], dtype=torch.long, device=self.device))
-                    else:
-                        t2.append(torch.randint(-1, t_, (1,), dtype=torch.long, device=self.device))
-                t2 = torch.cat(t2)
+                for t_ in t: # Select a second timestep on a sparse grid between -1 and t, in steps of min_t2_step from t
+                    x = (t_ // self.min_t2_step) + 1 # + 1 to be able to go to x0 from t
+                    diff = torch.randint(1, x + 1, (1,)).item() # +1 for indexing of torch.randint
+                    t2_ = t_ -  diff * self.min_t2_step
+                    t2.append(t2_)
+                t2 = torch.clamp(torch.tensor(t2, dtype=torch.long, device=self.device), min=-1)
             else:
                 t2 = None
 
@@ -711,14 +716,14 @@ class Sampler:
         self.prediction = prediction
         self.timesteps = timesteps
         self.device = kwargs['device']
-        self.deterministic = True if degradation in ['blur', 'fadeblack', 'fadeblack_blur','fadeblack_blur_bansal'] else False
+        self.deterministic = True if degradation in ['blur', 'blur_bansal', 'fadeblack', 'fadeblack_blur','fadeblack_blur_bansal'] else False
         self.black = True if degradation in ['fadeblack', 'fadeblack_blur', 'fadeblack_blur_bansal', 'fadeblack_noise'] else False
         self.gmm = None
         self.add_noise = kwargs['add_noise']
         self.break_symmetry = kwargs['break_symmetry']
         self.vae = kwargs['vae']
         self.noise_scale = kwargs['noise_scale']
-        self.xt_weighting = kwargs['xt_weighting']
+        self.loss_weighting = kwargs['loss_weighting']
         
 
     def fit_gmm(self, dataloader, clusters = 1, sample = False):
@@ -868,6 +873,7 @@ class Sampler:
         steps = t_diff if t_diff > 0 else 1
 
         if t_diff != 1:
+            print(f"Sampling with t_diff = {t_diff} and steps = {steps}")
             assert self.prediction == 'vxt', "Skipping sampling steps only works for Variable Timestep Diffusion"
 
         for t in tqdm(reversed(range(0, self.timesteps, steps)), desc=f"Cold Sampling"):
@@ -885,9 +891,10 @@ class Sampler:
             else:
                 pred = model(xt, t_tensor, t2=t2)
 
+
             # BANSAL ALGORITHM 2
             if self.prediction == 'x0' or (self.prediction == 'vxt' and t_diff == -1):
-                
+
                 # Remove sampling noise from x0 sampling, AFTER it was used for prediction
                 if sampling_noise is not None:
                     xt = xt - sampling_noise 
@@ -906,18 +913,18 @@ class Sampler:
 
                 xtm1 = (xt + pred) if self.add_noise or self.vae else pred # According to Risannen, the model predicts the residual, which stabilizes the training
 
-                # To cancel out the effect of target weighting from training
-                if self.xt_weighting:
-                    #weight = (1 - (t_tensor / self.timesteps)).reshape(-1, 1, 1, 1)
-                    weight = self.degradation.blacking_coefs[t_tensor-1].reshape(-1, 1, 1, 1)
-                    weight[t_tensor == 0] = 1.0
-                    xtm1 = xtm1 * weight #self.weight
+                # # To cancel out the effect of target weighting from training
+                # if self.loss_weighting:
+                #     #weight = (1 - (t_tensor / self.timesteps)).reshape(-1, 1, 1, 1)
+                #     weight = self.degradation.blacking_coefs[t_tensor-1].reshape(-1, 1, 1, 1)
+                #     weight[t_tensor == 0] = 1.0
+                #     xtm1 = xtm1 * weight #self.weight
 
-                # # Bansal-style sampling
+                # Bansal-style sampling
                 # if 'bansal' in self.degradation.degradation:
-                #     xtm1_model = xtm1_hat
-                #     xt_hat = self.degradation.bansal_blackblurring_xt(xtm1_hat, t_tensor) 
-                #     xtm1_hat = xt - xt_hat + xtm1_model # Counter the bias of the model prediction by having it incorporated two times in the sampling process
+                #     xtm1_model = xtm1
+                #     xt_hat = self.degradation.bansal_blackblurring_xt(xtm1, t_tensor) 
+                #     xtm1 = xt - xt_hat + xtm1_model # Counter the bias of the model prediction by having it incorporated two times in the sampling process
 
 
             # OURS with residual prediction

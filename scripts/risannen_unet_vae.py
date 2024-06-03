@@ -1133,6 +1133,8 @@ class VAEUnet(nn.Module):
 
         return target
 
+
+
     def forward(self, xt, t, cond=None, prior=None, t2 = None, y=None):
 
         """
