@@ -563,7 +563,7 @@ class Trainer:
             assert t2 is not None, "Second timesteps must be supplied for Variable Timestep Diffusion"
             vxt = self.degradation.degrade(x_0, t2, noise=noise) #x_t- = x_t2 with t2 < t
         elif self.prediction == 'xt':
-            x_tm = self.degradation.degrade(x_0, t-1, noise=noise) # x_t- = x_t-1
+            x_tm = self.degradation.degrade(x_0, t-self.min_t2_step, noise=noise) # x_t- = x_t-1
 
         # Add noise to degrade with - Noise injection a la Risannen
         if self.add_noise:
@@ -608,7 +608,10 @@ class Trainer:
             else:
                 pred = model_pred
 
-            reconstruction = self.loss.mse_loss(target, pred)
+            reconstruction = (target - pred)**2 # L2 penalty 
+
+            # Sum over all pixels before averaging, important for loss scaling
+            reconstruction = torch.sum(reconstruction.reshape(reconstruction.shape[0], -1), dim=-1).mean() 
 
             if self.loss_weighting:
                 if t2 is not None:
@@ -643,6 +646,7 @@ class Trainer:
 
             # Sum over all pixels before averaging, important for loss scaling
             loss = torch.sum(loss.reshape(loss.shape[0], -1), dim=-1).mean() 
+
             #loss = loss.mean()
             return loss
     
@@ -675,6 +679,8 @@ class Trainer:
                     t2_ = t_ -  diff * self.min_t2_step
                     t2.append(t2_)
                 t2 = torch.clamp(torch.tensor(t2, dtype=torch.long, device=self.device), min=-1)
+            elif self.prediction == 'xt':
+                t2 = t - self.min_t2_step
             else:
                 t2 = None
 
@@ -874,13 +880,13 @@ class Sampler:
 
         if t_diff != 1:
             print(f"Sampling with t_diff = {t_diff} and steps = {steps}")
-            assert self.prediction == 'vxt', "Skipping sampling steps only works for Variable Timestep Diffusion"
+            #assert self.prediction == 'vxt', "Skipping sampling steps only works for Variable Timestep Diffusion"
 
         for t in tqdm(reversed(range(0, self.timesteps, steps)), desc=f"Cold Sampling"):
             t_tensor = torch.full((batch_size,), t, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
             
             # Sample t2 for variable xt prediction
-            if self.prediction == 'vxt':
+            if self.prediction in ['xt', 'vxt']:
                 if t_diff <= 0: # Equals to x0 prediction
                     t2 = torch.full((batch_size,), -1, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
                 elif t_diff > 0: # Equals to xt prediction of variable timestep
@@ -911,7 +917,7 @@ class Sampler:
             # OURS with xt prediction (includes variable timestep prediction)
             elif self.prediction == 'xt' or (self.prediction == 'vxt' and t_diff != -1):
 
-                xtm1 = (xt + pred) if self.add_noise or self.vae else pred # According to Risannen, the model predicts the residual, which stabilizes the training
+                xtm1 = (xt + pred) if (self.add_noise or self.vae) else pred # According to Risannen, the model predicts the residual, which stabilizes the training
 
                 # # To cancel out the effect of target weighting from training
                 # if self.loss_weighting:
@@ -1068,7 +1074,156 @@ class DCTBlur(nn.Module):
         dct_blurred[fwd_steps == -1] = x[fwd_steps == -1] # Keep the original image for t=-1 (needed for Bansal style sampling)
         return dct_blurred
 
+# Custom DCT Blur Module for Bansal Style Sampling
+class DCTBlurSampling(nn.Module):
+
+    def __init__(self, blur_sigmas, image_size, device):
+        super(DCTBlurSampling, self).__init__()
+        self.blur_sigmas = blur_sigmas.clone().detach().to(device)
+        freqs = np.pi*torch.linspace(0, image_size-1,
+                                    image_size).to(device)/image_size
+        self.frequencies_squared = freqs[:, None]**2 + freqs[None, :]**2
+
+    def forward(self, x, fwd_steps = None, t = None):
+        if fwd_steps is None:
+            sigmas = self.blur_sigmas[:, None, None, None]
+        else:
+            if len(x.shape) == 4:
+                sigmas = self.blur_sigmas[fwd_steps][:, None, None, None]
+            elif len(x.shape) == 3:
+                sigmas = self.blur_sigmas[fwd_steps][:, None, None]
+                print(sigmas)
+        
+        if t is None:
+            t = sigmas**2/2
+        else:
+            #assert t.shape == sigmas.shape, f"t must be of equal shape as sigmas, got {t.shape} as shape instead of {sigmas.shape}."
+            pass
+            
+        dct_coefs = torch_dct.dct_2d(x, norm='ortho')
+        dct_coefs = dct_coefs * torch.exp(- self.frequencies_squared * t)
+        dct_blurred = torch_dct.idct_2d(dct_coefs, norm='ortho')
+
+        if t is None:
+            dct_blurred[fwd_steps == -1] = x[fwd_steps == -1] # Keep the original image for t=-1 (needed for Bansal style sampling)
+        
+            if fwd_steps[0] == -1:
+                print("Sampling End reached, returning original image.")
+
+        return dct_blurred
+    
+class VarTSampler():
+
+    def __init__(self, trainer, **kwargs):
+        self.trainer = trainer
+        self.device = kwargs['device']
+        self.model = trainer.model
+        self.model.eval()
+        self.timesteps = kwargs['timesteps']
+        self.n_samples = kwargs['n_samples'] 
+        self.T = torch.full((self.n_samples,), self.timesteps-1, dtype=torch.long).to(kwargs['device'])
+        self.xT = torch.zeros((self.n_samples, kwargs['channels'], kwargs['image_size'], kwargs['image_size']), device=kwargs['device']) 
+        self.prior = torch.randn(self.n_samples, kwargs['latent_dim']).to(kwargs['device'])
+        self.dct = DCTBlurSampling(trainer.degradation.dct_blur.blur_sigmas, kwargs['image_size'], kwargs['device'])
+
+    
+    @torch.no_grad()
+    def full_loop(self, step_size, t_int = 0, mean = 0, std = 1, dim = 0, plot = True, bansal_sampling = True):
+
+        steps = self.timesteps // step_size
+        
+        # Choose t to inject
+        t_inject = steps if t_int > steps else steps - 1
+
+        xt = self.xT
+        samples = torch.Tensor(xt[0])
+        
+        # Bansal-style sampling
+        if bansal_sampling:
+            skip_steps = 1
+            bansal_flag = "Bansal"
+        else:
+            skip_steps = step_size-1 if step_size == self.timesteps else step_size
+            #skip_steps = 1 if step_size == kwargs['timesteps'] else skip_steps
+            bansal_flag = "Regular"
+            
+        # Loop differs from the sequential one, as we go back to t-1 at every step
+        for i in tqdm(range(self.timesteps-1, -1, -skip_steps), total = self.timesteps // skip_steps, desc = f'Sampling {bansal_flag} with step size of {step_size}'):
+            
+            t = torch.full((self.n_samples,), i, dtype=torch.long).to(self.device)
+            t2 = torch.full((self.n_samples,), i-step_size, dtype=torch.long).to(self.device)
+            
+            if t2[0].item() < 0: # Equals to x0 prediction
+                t2 = torch.full((self.n_samples,), -1, dtype=torch.long).to(self.device) # t-1 to account for 0 indexing that the model is seeing during training
+
+            # if not bansal_sampling:
+            #     print(f"t = {t[0].item()}, t2 = {t2[0].item()}")
+            
+            #prior = self.manipulate_prior(dim, mean, std) if i == t_inject else None
+            prior = self.prior
+            pred = self.model(xt, t, cond=None, prior=prior, t2=t2)
+            pred = pred.detach()
+            
+            xtm1_model = xt + pred
+            samples = torch.cat((samples, xtm1_model[0]), dim=0)
+
+            # Bansal Part
+            if bansal_sampling:
+                if step_size == self.timesteps:
+                    
+                    xt_hat = self.trainer.degradation.degrade(xtm1_model, t)
+                    xtm1_hat = self.trainer.degradation.degrade(xtm1_model, t-1)
+                    
+                else:
+
+                    # Calculcate reblurring for DCT
+                    stdt = self.trainer.degradation.blur.dct_sigmas[t[0].item()]
+                    stdtm1 = self.trainer.degradation.blur.dct_sigmas[t[0].item()-1]
+                    stdt2 = self.trainer.degradation.blur.dct_sigmas[t2[0].item()] if t2[0].item() != -1 else 0
+
+                    # Manually calculating DCT timesteps
+                    t_dct = torch.full((self.n_samples,), stdt**2/2, dtype=torch.float32)[:, None, None, None].to(self.device)
+                    tm1_dct = torch.full((self.n_samples,), stdtm1**2/2, dtype=torch.float32)[:, None, None, None].to(self.device)
+                    t2_dct = torch.full((self.n_samples,), stdt2**2/2, dtype=torch.float32)[:, None, None, None].to(self.device)
+                    
+                    # Calculate DCT differences to get to t / t-1 from t2
+                    t_diff_dct = t_dct - t2_dct
+                    tm1_diff_dct = tm1_dct - t2_dct
+
+                    # Undo Blacking
+                    blacking_coef = self.trainer.degradation.blacking_coefs[t2[0].item()] if t2[0].item() != -1 else 1
+                    xtm1_model = xtm1_model / blacking_coef
+
+                    # Reblur to t / t-1 from t2
+                    xt_hat = self.dct(xtm1_model, t=t_diff_dct) 
+                    xtm1_hat = self.dct(xtm1_model, t=tm1_diff_dct)
+
+                    # Reapply Blacking
+                    xt_hat = xt_hat * self.trainer.degradation.blacking_coefs[t[0].item()]
+                    xtm1_hat = xtm1_hat * self.trainer.degradation.blacking_coefs[t[0].item() - 1]
+
+                    # Check for NAs
+                    assert not torch.isnan(xtm1_hat).any() 
+
+                    if t[0].item()-1 == -1:
+                        xtm1_hat = xtm1_model # Keep the original image for t=-1 (needed for Bansal style sampling)
+                        #assert torch.equal(xtm1_hat[0], xtm1_model[0]), f"DCT reblurring failed, xtm1_hat is not equal to xtm1_model with xtm1_hat = {xtm1_hat[0,0,0]} and xtm1_model = {xtm1_model[0,0,0]}"
+
+                xt = xt - xt_hat + xtm1_hat # Counter the bias of the model prediction by having it incorporated two times in the sampling process
+                samples = torch.cat((samples, xt[0]), dim=0)
+
+            else:
+                xt = xtm1_model
+                #samples = torch.cat((samples, xt[0:5]), dim=0)
+                if t[0].item() < step_size:
+                    break
+        
+        return samples, xt
+
+
+    def manipulate_prior(self, dim, mean = 0, std = 1):
+        man_prior = self.prior[:,dim] * std + mean
+        return man_prior
 
 
 
-## Current Problem: It seems that in the standard Denoising Diffusion, we subtract the complete noise to obtain an estimate of x0 at each sampling step, while for deblurring, it seems that we only subtract the noise from the previous step. This is not clear in the paper.

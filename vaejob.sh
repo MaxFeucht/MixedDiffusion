@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=va_s.3_20
-#SBATCH --time=14:00:00
+#SBATCH --job-name=9_32_adapt
+#SBATCH --time=10:00:00 
 #SBATCH -N 1
-#SBATCH -C A100
+#SBATCH -C A5000
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
 #SBATCH --gres=gpu:1
-#SBATCH -o vae_mnist_output.out
+#SBATCH -o 9_32_adapt.out
 
 ## in the list above, the partition name depends on where you are running your job. 
 ## On DAS5 the default would be `defq` on Lisa the default would be `gpu` or `gpu_shared`
@@ -44,22 +44,24 @@ cd /var/scratch/mft520/experiments
 ## Set Vars
 
 lr=1e-4
-batch_size=32
-timesteps=50
+batch_size=64
+timesteps=200
 dim=128
 epochs=1000
-prediction="vxt"
+prediction="xt"
 degradation="fadeblack_blur"
-noise_schedule="cosine"
-dataset="afhq"
-sample_interval=1
-n_samples=72
+noise_schedule="cosine" 
+dataset="afhq" 
+sample_interval=5
+n_samples=60
 model_ema_decay=0.997
-vae_alpha=0.998
+vae_alpha=0.999
 noise_scale=0.01
 latent_dim=32
 vae_inject="add"
-xt_dropout=0.2
+vae_loc="start"
+xt_dropout=0
+min_t2_step=1
 
 
 # Run the actual experiment. 
@@ -67,6 +69,7 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --lr $lr --prediction $prediction --degradation $degradation \
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --model_ema_decay $model_ema_decay --noise_scale $noise_scale \
-                                                --latent_dim $latent_dim --vae_alpha $vae_alpha --vae_inject $vae_inject --xt_dropout $xt_dropout \
-                                                --cluster --vae --load_checkpoint
+                                                --latent_dim $latent_dim --vae_alpha $vae_alpha --vae_inject $vae_inject --vae_loc $vae_loc \
+                                                --min_t2_step $min_t2_step --var_sampling_step $min_t2_step \
+                                                --xt_dropout $xt_dropout --cluster --vae
 echo "Script finished"

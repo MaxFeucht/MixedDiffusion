@@ -1,12 +1,12 @@
 #!/bin/bash
-#SBATCH --job-name=ris_base
-#SBATCH --time=14:00:00
+#SBATCH --job-name=ddpm_base
+#SBATCH --time=24:00:00
 #SBATCH -N 1
-#SBATCH -C A5000
+#SBATCH -C A6000
 #SBATCH --ntasks-per-node=1
 #SBATCH --partition=defq
 #SBATCH --gres=gpu:1
-#SBATCH -o ris_base.out
+#SBATCH -o ddpm_base.out
 
 ## in the list above, the partition name depends on where you are running your job. 
 ## On DAS5 the default would be `defq` on Lisa the default would be `gpu` or `gpu_shared`
@@ -44,23 +44,24 @@ cd /var/scratch/mft520/experiments
 ## Set Vars
 
 lr=1e-4
-batch_size=32
+batch_size=64
 timesteps=200
 dim=128
 epochs=1000
-prediction="xt"
-degradation="fadeblack_blur"
-noise_schedule="cosine"
-dataset="afhq"
-sample_interval=1
-n_samples=72
+prediction="residual"
+degradation="noise"
+noise_schedule="cosine" 
+dataset="afhq" 
+sample_interval=5
+n_samples=60
 model_ema_decay=0.997
-vae_alpha=0.998
+vae_alpha=0.9999
 noise_scale=0.01
-latent_dim=32
-vae_inject="add"
+latent_dim=128
+vae_inject="concat"
+vae_loc="start"
 xt_dropout=0
-var_sampling_step=-1
+min_t2_step=1
 
 
 # Run the actual experiment. 
@@ -68,6 +69,8 @@ python /var/scratch/mft520/MixedDiffusion/main.py --epochs $epochs --batch_size 
                                                 --lr $lr --prediction $prediction --degradation $degradation \
                                                 --noise_schedule $noise_schedule --dataset $dataset --sample_interval $sample_interval \
                                                 --n_samples $n_samples --model_ema_decay $model_ema_decay --noise_scale $noise_scale \
-                                                --latent_dim $latent_dim --vae_alpha $vae_alpha --vae_inject $vae_inject --xt_dropout $xt_dropout \
-                                                 --var_sampling_step $var_sampling_step --cluster --add_noise 
+                                                --latent_dim $latent_dim --vae_alpha $vae_alpha --vae_inject $vae_inject --vae_loc $vae_loc \
+                                                --min_t2_step $min_t2_step --var_sampling_step $min_t2_step \
+                                                --xt_dropout $xt_dropout --cluster #--add_noise
+
 echo "Script finished"

@@ -21,10 +21,14 @@ from mnist_unet import MNISTUnet
 from scripts.bansal_unet import BansalUnet
 from scripts.risannen_unet import RisannenUnet
 from scripts.risannen_unet_vae import VAEUnet
+#from scripts.efficient_diffusion_vae import VAEUnet
+
 #from scripts.vae_unet_full import VAEUnet
 
 from diffusion_utils import Degradation, Trainer, Sampler, ExponentialMovingAverage
 from utils import load_dataset, plot_degradation, create_dirs, save_video, save_gif, MyCelebA
+
+from sampler import sample_func
 
 import torch.multiprocessing as mp
 mp.set_start_method('spawn', force=True)
@@ -60,7 +64,7 @@ def main(**kwargs):
         attention_levels = (2,3)
         ch_mult = (1, 2, 3, 4)
         num_res_blocks = 2
-        dropout = 0.3
+        dropout = 0.2
     elif kwargs['dataset'] == 'celeba':
         attention_levels = (2,3)
         ch_mult = (1, 2, 2, 2)
@@ -85,6 +89,8 @@ def main(**kwargs):
         #                 noise_scale=kwargs['noise_scale'],
         #                 dropout=0)
 
+        print(kwargs['dim'])
+
         # Risannen Version
         unet = VAEUnet(image_size=kwargs["image_size"],
                         in_channels=channels,
@@ -95,7 +101,7 @@ def main(**kwargs):
                         ch_mult=ch_mult,
                         latent_dim = kwargs['latent_dim'],
                         noise_scale= kwargs['noise_scale'],
-                        var_timestep=True if kwargs['prediction'] == 'vxt' else False,
+                        var_timestep=True if kwargs['prediction'] in ['xt', 'vxt'] else False,
                         vae_loc = kwargs['vae_loc'],
                         vae_inject = kwargs['vae_inject'],
                         xt_dropout = kwargs['xt_dropout'])
@@ -117,7 +123,7 @@ def main(**kwargs):
                             attention_levels=attention_levels,
                             dropout=dropout,
                             ch_mult=ch_mult,
-                            var_timestep=True if kwargs['prediction'] == 'vxt' else False)
+                            t2=True if kwargs['prediction'] in ['xt', 'vxt'] else False)
 
 
     # # Enable Multi-GPU training
@@ -202,18 +208,19 @@ def main(**kwargs):
             else: 
                 # Cold Sampling
                 #og_img = next(iter(trainloader))[0][:kwargs['n_samples']].to(kwargs['device'])
-                t_diff = kwargs['var_sampling_step'] if e % 2 != 0 else -1
+                t_diff_var = kwargs['var_sampling_step'] if e % 2 != 0 else -1 # Alternate between sampling xt-t_diff style and x0 style
+                t_diff_xt = kwargs['var_sampling_step'] if kwargs['prediction'] == 'xt' else 1 # Sampling xt-1 style but with bigger steps 
                 _, xt, direct_recons, all_images = sampler.sample(model=trainer.model, 
                                                                         generate=True, 
                                                                         batch_size = kwargs['n_samples'],
-                                                                        t_diff=t_diff if kwargs['prediction'] == 'vxt' else 1) # Sample xt-1 style every second epoch
+                                                                        t_diff=t_diff_var if kwargs['prediction'] == 'vxt' else t_diff_xt) # Sample xt-1 style every second epoch
 
                 # Prior is defined above under "fix_sample"
                 gen_samples, gen_xt, _, gen_all_images = sampler.sample(model = trainer.model,
                                                                         generate=True,
                                                                         batch_size = kwargs['n_samples'], 
                                                                         prior=prior,
-                                                                        t_diff=t_diff if kwargs['prediction'] == 'vxt' else 1) # Sample xt-1 style every second epoch
+                                                                        t_diff=t_diff_var if kwargs['prediction'] == 'vxt' else t_diff_xt) # Sample xt-1 style every second epoch
                 
                 # Training Process conditional generation
                 #save_image(og_img, os.path.join(imgpath, f'orig_{e}.png'), nrow=nrow)
@@ -241,6 +248,16 @@ def main(**kwargs):
                     'ema_state_dict': trainer.model_ema.state_dict(),
                 }
                 torch.save(chkpt, os.path.join(modelpath, f"chpkt_{kwargs['dim']}_{kwargs['timesteps']}_{kwargs['prediction']}{ema_flag}.pt"))
+        
+        # Sample Function for VXT
+        if kwargs['prediction'] == 'vxt':
+            if e % 2 == 0:
+                sample_args = kwargs.copy()
+                sample_args['trainer'] = trainer
+                sample_args['cluster'] = True
+                sample_args['sampling_steps'] = [20,50,70,100,150,200]
+                sample_args['e'] = e
+                sample_func(**sample_args)
 
 
 
@@ -253,17 +270,17 @@ if __name__ == "__main__":
     # General Diffusion Parameters
     parser.add_argument('--timesteps', '--t', type=int, default=50, help='Degradation timesteps')
     parser.add_argument('--prediction', '--pred', type=str, default='vxt', help='Prediction method, choose one of [x0, xt, residual]')
-    parser.add_argument('--dataset', type=str, default='mnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
-    parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur_bansal', help='Degradation method')
+    parser.add_argument('--dataset', type=str, default='fashionmnist', help='Dataset to run Diffusion on. Choose one of [mnist, cifar10, celeba, lsun_churches]')
+    parser.add_argument('--degradation', '--deg', type=str, default='fadeblack_blur', help='Degradation method')
     parser.add_argument('--batch_size', '--b', type=int, default=64, help='Batch size')
-    parser.add_argument('--dim', '--d', type=int , default=32, help='Model dimension')
+    parser.add_argument('--dim', '--d', type=int , default=64, help='Model dimension')
     parser.add_argument('--lr', type=float, default=2e-4, help='Learning rate')
     parser.add_argument('--epochs', '--e', type=int, default=20, help='Number of Training Epochs')
     parser.add_argument('--noise_schedule', '--sched', type=str, default='cosine', help='Noise schedule')
     parser.add_argument('--loss_weighting', action='store_true', help='Whether to use weighting for reconstruction loss')
     parser.add_argument('--var_sampling_step', type=int, default = 1, help='How to sample var timestep model - int > 0 indicates t difference to predict, -1 indicates x0 prediction')
-    parser.add_argument('--min_t2_step', type=int, default=1, help='With what min step size to discretize t2 in variational timestep model') 
-    parser.add_argument('--baseline', '--base', type=str, default='xxx', help='Whether to run a baseline model - Risannen, Bansal, VAE')
+    parser.add_argument('--min_t2_step', type=int, default=1, help='With what min step size to discretize t2 in variational timestep model')
+    parser.add_argument('--baseline', '--base', type=str, default='xxxx', help='Whether to run a baseline model - Risannen, Bansal, VAE')
 
     # Noise Injection Parameters
     parser.add_argument('--vae', action='store_true', help='Whether to use VAE Noise injections')
@@ -301,33 +318,14 @@ if __name__ == "__main__":
     elif args.dataset == 'afhq':
         args.image_size = 64
 
-    if args.prediction == 'vxt':
-        var_string = "Running Variable Timestep Diffusion"
-    else:
-        var_string = "Running Sequential Diffusion"
 
-    if args.vae:
-        setup_string = "using VAE Noise Injections"
-        assert not args.add_noise, "Cannot use VAE and add noise at the same time"
-    else:
-        if args.add_noise:
-            setup_string = "with Risannen Noise Injections"
-        else:
-            setup_string = "with Normal U-Net"
-    
-    print(var_string + " " + setup_string)
-
-
-    if not args.cluster:
-        print("Running locally, Cluster =", args.cluster)
-        # args.dim = int(args.dim/2)
-        if args.device == 'cuda':
-            warnings.warn('Consider running model on cluster-scale if CUDA is available')
-    
-    if args.test_run:
-        print("Running Test Run with only one iter per epoch")
-
-    if args.baseline == 'risannen':
+    if args.baseline == 'ddpm':
+        args.prediction = 'residual'
+        args.degradation = 'noise'
+        args.vae = False
+        args.add_noise = False
+        args.break_symmetry = False
+    elif args.baseline == 'risannen':
         args.vae = False
         args.add_noise = True
         args.break_symmetry = False
@@ -350,6 +348,31 @@ if __name__ == "__main__":
         args.break_symmetry = False
         args.prediction = 'x0'
 
+
+    if args.prediction == 'vxt':
+        var_string = "Running Variable Timestep Diffusion"
+    else:
+        var_string = "Running Sequential Diffusion"
+
+    if not args.cluster:
+        print("Running locally, Cluster =", args.cluster)
+        if args.device == 'cuda':
+            warnings.warn('Consider running model on cluster-scale if CUDA is available')
+    
+    if args.test_run:
+        print("Running Test Run with only one iter per epoch")
+
+    if args.vae:
+        setup_string = "using VAE Noise Injections"
+        assert not args.add_noise, "Cannot use VAE and add noise at the same time"
+    else:
+        if args.add_noise:
+            setup_string = "with Risannen Noise Injections"
+        else:
+            setup_string = "with Normal U-Net"
+    
+    print(var_string + " " + setup_string)
+    
     # Initialize wandb
     if not args.skip_wandb:
         wandb.init(

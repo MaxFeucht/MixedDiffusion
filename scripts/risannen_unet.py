@@ -605,7 +605,7 @@ class RisannenUnet(nn.Module):
         attention_levels,
         dropout,
         ch_mult,
-        var_timestep,
+        t2,
         use_checkpoint=False
     ):
         super().__init__()
@@ -620,7 +620,7 @@ class RisannenUnet(nn.Module):
         self.dropout = dropout 
         self.channel_mult = ch_mult
         time_embed_dim = dim * 4
-        self.var_timestep = var_timestep
+        self.t2 = t2
 
         # Default Arguments
         self.conv_resample = True
@@ -643,7 +643,7 @@ class RisannenUnet(nn.Module):
         )
 
         # Variable Timestep Embedding Adjustment
-        if self.var_timestep:
+        if self.t2:
             time_embed_dim = time_embed_dim * 2 # Double the time embedding dimension to include t2 embedding
 
         # if self.num_classes is not None:

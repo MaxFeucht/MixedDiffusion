@@ -864,11 +864,11 @@ class VAEUnet(nn.Module):
         # VAE Encoder
         self.vae_encoder = VAEEncoder(image_size, 
                                       in_channels, 
-                                      dim, 
+                                      int(dim / 2), # Half dim for VAE Encoder
                                       num_res_blocks, 
                                       attention_levels, 
                                       dropout, 
-                                      ch_mult, 
+                                      [int((i+1)/2) for i in ch_mult], # Half channel mult for VAE Encoder
                                       self.time_embed_dim,
                                       latent_dim)
         
@@ -878,7 +878,7 @@ class VAEUnet(nn.Module):
         ch = input_ch = int(self.channel_mult[0] * self.model_channels)
 
         # Adjust the input channels if VAE is concateded at the start
-        if self.vae_loc == 'start' and self.vae_inject == 'concat':
+        if self.vae_loc in ['start', 'maps'] and self.vae_inject == 'concat':
             in_channels += self.latent_dim
         
         # Adjust the time embedding if VAE is concateded at the start
@@ -995,6 +995,10 @@ class VAEUnet(nn.Module):
         for level, mult in list(enumerate(self.channel_mult))[::-1]:
             for i in range(num_res_blocks + 1):
                 ich = input_block_chans.pop()
+
+                # if self.vae_loc == 'maps' and self.vae_inject == 'concat':
+                #     ch += self.latent_dim
+
                 layers = [
                     ResBlock(
                         ch + ich,
@@ -1021,6 +1025,7 @@ class VAEUnet(nn.Module):
                     )
                 if level and i == num_res_blocks:
                     out_ch = ch
+
                     layers.append(
                         ResBlock(
                             ch,
@@ -1186,6 +1191,10 @@ class VAEUnet(nn.Module):
         if self.vae_loc == 'emb':
             emb = self.vae_injection(emb, z_sample)
 
+        # VAE Injection at start also for maps
+        if self.vae_loc == "maps":
+            xt = self.vae_injection(xt, z_sample, index = 0)
+
         h = xt.type(self.dtype)
         for i, module in enumerate(self.input_blocks):
 
@@ -1201,7 +1210,13 @@ class VAEUnet(nn.Module):
         if self.vae_loc == 'bottleneck':
             h = self.vae_injection(h, z_sample)
 
-        for module in self.output_blocks:
+        num_blocks = len(self.output_blocks)
+        for j, module in enumerate(self.output_blocks):
+
+            # # Injection added to feature map at every downsample step
+            # if self.vae_loc == "maps":
+            #     h = self.vae_injection(h, z_sample, index = num_blocks - j) # Same MLPs as downsample, indexed in reverse
+
             h = th.cat([h, hs.pop()], dim=1)
             h = module(h, emb)
         h = h.type(xt.dtype)
